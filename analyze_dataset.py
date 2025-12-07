@@ -155,7 +155,7 @@ def analyze_vggface2(root_dir=None):
     print(f"Dataset path: {root_dir}\n")
     
     train_dir = os.path.join(root_dir, 'train')
-    test_dir = os.path.join(root_dir, 'test')
+    val_dir = os.path.join(root_dir, 'val')
     
     results = {}
     
@@ -184,22 +184,42 @@ def analyze_vggface2(root_dir=None):
         print(f"Median images per identity: {np.median(identity_counts):.0f}")
         print(f"Std images per identity: {identity_counts.std():.2f}")
         
+        # Count how many identities have each specific number of samples
+        print(f"\nIdentity distribution by exact sample count:")
+        print("-" * 80)
+        count_series = pd.Series(identity_counts)
+        sample_count_distribution = count_series.value_counts().sort_index()
+        
+        for num_samples, num_identities in sample_count_distribution.items():
+            print(f"  {num_identities:5,} identities: {num_samples:3d} images each")
+        
+        # Cumulative distribution
+        print(f"\nCumulative distribution:")
+        print(f"  ≥5 samples: {(identity_counts >= 5).sum():,} identities")
+        print(f"  ≥10 samples: {(identity_counts >= 10).sum():,} identities")
+        print(f"  ≥15 samples: {(identity_counts >= 15).sum():,} identities")
+        print(f"  ≥20 samples: {(identity_counts >= 20).sum():,} identities")
+        print(f"  ≥30 samples: {(identity_counts >= 30).sum():,} identities")
+        print(f"  ≥40 samples: {(identity_counts >= 40).sum():,} identities")
+        print(f"  ≥50 samples: {(identity_counts >= 50).sum():,} identities")
+        print(f"  ≥100 samples: {(identity_counts >= 100).sum():,} identities")
+        
         results['train'] = {
             'num_identities': len(train_identities),
             'num_images': total_images,
             'identity_counts': identity_counts
         }
     
-    # Analyze test
-    if os.path.exists(test_dir):
-        print("\n\nTEST SET")
+    # Analyze val
+    if os.path.exists(val_dir):
+        print("\n\nVALIDATION SET")
         print("-" * 80)
-        test_identities = [d for d in os.listdir(test_dir) 
-                         if os.path.isdir(os.path.join(test_dir, d))]
+        val_identities = [d for d in os.listdir(val_dir) 
+                         if os.path.isdir(os.path.join(val_dir, d))]
         
         identity_counts = []
-        for identity in test_identities:
-            identity_path = os.path.join(test_dir, identity)
+        for identity in val_identities:
+            identity_path = os.path.join(val_dir, identity)
             num_images = len([f for f in os.listdir(identity_path) 
                             if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
             identity_counts.append(num_images)
@@ -207,7 +227,7 @@ def analyze_vggface2(root_dir=None):
         identity_counts = np.array(identity_counts)
         total_images = identity_counts.sum()
         
-        print(f"Total identities: {len(test_identities):,}")
+        print(f"Total identities: {len(val_identities):,}")
         print(f"Total images: {total_images:,}")
         print(f"Avg images per identity: {identity_counts.mean():.2f}")
         print(f"Min images per identity: {identity_counts.min()}")
@@ -215,8 +235,28 @@ def analyze_vggface2(root_dir=None):
         print(f"Median images per identity: {np.median(identity_counts):.0f}")
         print(f"Std images per identity: {identity_counts.std():.2f}")
         
-        results['test'] = {
-            'num_identities': len(test_identities),
+        # Count how many identities have each specific number of samples
+        print(f"\nIdentity distribution by exact sample count:")
+        print("-" * 80)
+        count_series = pd.Series(identity_counts)
+        sample_count_distribution = count_series.value_counts().sort_index()
+        
+        for num_samples, num_identities in sample_count_distribution.items():
+            print(f"  {num_identities:5,} identities: {num_samples:3d} images each")
+        
+        # Cumulative distribution
+        print(f"\nCumulative distribution:")
+        print(f"  ≥5 samples: {(identity_counts >= 5).sum():,} identities")
+        print(f"  ≥10 samples: {(identity_counts >= 10).sum():,} identities")
+        print(f"  ≥15 samples: {(identity_counts >= 15).sum():,} identities")
+        print(f"  ≥20 samples: {(identity_counts >= 20).sum():,} identities")
+        print(f"  ≥30 samples: {(identity_counts >= 30).sum():,} identities")
+        print(f"  ≥40 samples: {(identity_counts >= 40).sum():,} identities")
+        print(f"  ≥50 samples: {(identity_counts >= 50).sum():,} identities")
+        print(f"  ≥100 samples: {(identity_counts >= 100).sum():,} identities")
+        
+        results['val'] = {
+            'num_identities': len(val_identities),
             'num_images': total_images,
             'identity_counts': identity_counts
         }
