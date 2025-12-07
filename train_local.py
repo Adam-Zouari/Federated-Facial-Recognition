@@ -8,6 +8,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 import config
 from models import create_model
@@ -134,6 +135,9 @@ class LocalTrainer:
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         criterion = nn.CrossEntropyLoss()
         
+        # Learning rate scheduler: reduce LR when validation loss plateaus
+        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+        
         print(f"\nStarting Local Training for {self.client_name}")
         print(f"Epochs: {epochs}, LR: {learning_rate}")
         print("="*60)
@@ -147,13 +151,17 @@ class LocalTrainer:
             # Validate
             val_loss, val_acc = self.validate(criterion)
             
+            # Update learning rate based on validation loss
+            scheduler.step(val_loss)
+            current_lr = optimizer.param_groups[0]['lr']
+            
             # Update metrics
             self.metrics_tracker.update(
                 train_loss=train_loss,
                 train_acc=train_acc,
                 val_loss=val_loss,
                 val_acc=val_acc,
-                lr=learning_rate
+                lr=current_lr
             )
             
             # Log to MLflow
@@ -163,7 +171,7 @@ class LocalTrainer:
                     'train_acc': train_acc,
                     'val_loss': val_loss,
                     'val_acc': val_acc,
-                    'learning_rate': learning_rate
+                    'learning_rate': current_lr
                 }, step=epoch)
             
             print(f"Epoch {epoch}/{epochs} - "
