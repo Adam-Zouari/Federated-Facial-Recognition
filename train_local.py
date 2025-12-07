@@ -133,7 +133,21 @@ class LocalTrainer:
         early_stopping_patience = early_stopping_patience or config.EARLY_STOPPING_PATIENCE
         
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        criterion = nn.CrossEntropyLoss()
+        
+        # Compute class weights for balanced loss (even with stratification)
+        all_labels = []
+        for _, labels in self.train_loader:
+            all_labels.extend(labels.tolist())
+        
+        unique_labels = torch.unique(torch.tensor(all_labels))
+        num_classes = len(unique_labels)
+        class_counts = torch.bincount(torch.tensor(all_labels), minlength=num_classes)
+        class_weights = 1.0 / class_counts.float()
+        class_weights = class_weights / class_weights.sum() * num_classes  # Normalize
+        class_weights = class_weights.to(self.device)
+        
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+        print(f"Using class-weighted loss (weights range: {class_weights.min():.3f} - {class_weights.max():.3f})")
         
         # Learning rate scheduler: reduce LR when validation loss plateaus
         scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
