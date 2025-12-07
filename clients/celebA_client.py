@@ -73,18 +73,23 @@ class CelebADataset(Dataset):
             top_identities = self.data['identity'].value_counts().head(max_identities).index
             self.data = self.data[self.data['identity'].isin(top_identities)]
         
-        # Balance dataset: make all identities have the same number of images
-        identity_counts = self.data['identity'].value_counts()
-        min_samples = identity_counts.min()
-        
-        balanced_data = []
-        for identity in self.data['identity'].unique():
-            identity_data = self.data[self.data['identity'] == identity]
-            # Sample min_samples images from this identity
-            sampled = identity_data.sample(n=min_samples, random_state=42)
-            balanced_data.append(sampled)
-        
-        self.data = pd.concat(balanced_data, ignore_index=True)
+        # Balance dataset ONLY for training split
+        # Val/test splits keep all samples for better evaluation
+        if split == 'train':
+            identity_counts = self.data['identity'].value_counts()
+            min_samples = identity_counts.min()
+            
+            balanced_data = []
+            for identity in self.data['identity'].unique():
+                identity_data = self.data[self.data['identity'] == identity]
+                # Sample min_samples images from this identity
+                sampled = identity_data.sample(n=min_samples, random_state=42)
+                balanced_data.append(sampled)
+            
+            self.data = pd.concat(balanced_data, ignore_index=True)
+            balance_info = f" ({min_samples} per identity)"
+        else:
+            balance_info = ""
         
         # Remap identity labels to contiguous range starting from 0
         unique_identities = sorted(self.data['identity'].unique())
@@ -95,7 +100,7 @@ class CelebADataset(Dataset):
         self.image_list = self.data['filename'].tolist()
         self.labels = self.data['identity'].tolist()
         
-        print(f"CelebA {split}: {len(self.image_list)} images, {len(unique_identities)} identities ({min_samples} per identity)")
+        print(f"CelebA {split}: {len(self.image_list)} images, {len(unique_identities)} identities{balance_info}")
         
     def __len__(self):
         return len(self.image_list)
