@@ -262,7 +262,7 @@ class LocalTrainer:
             print(f"Warning: Checkpoint not found at {filepath}")
             return False
         
-        checkpoint = torch.load(filepath, map_location=self.device)
+        checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
         
         # Always load model weights
         self.model.load_state_dict(checkpoint['model_state_dict'])
