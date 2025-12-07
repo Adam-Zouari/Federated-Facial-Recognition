@@ -306,6 +306,8 @@ def main():
                        help='Batch size')
     parser.add_argument('--patience', type=int, default=config.EARLY_STOPPING_PATIENCE,
                        help='Early stopping patience (epochs without improvement)')
+    parser.add_argument('--resume', type=str, choices=['latest', 'best'], default=None,
+                       help='Resume training from checkpoint (latest or best)')
     parser.add_argument('--no-mlflow', action='store_true',
                        help='Disable MLflow tracking')
     
@@ -358,6 +360,15 @@ def main():
                 test_loader=test_loader,
                 use_mlflow=use_mlflow
             )
+            
+            # Resume from checkpoint if requested
+            if args.resume:
+                checkpoint_file = 'latest_checkpoint.pth' if args.resume == 'latest' else 'best_model.pth'
+                print(f"\nAttempting to resume from {checkpoint_file}...")
+                if trainer.load_checkpoint(checkpoint_file, resume_training=True):
+                    print(f"Successfully resumed from {args.resume} checkpoint")
+                else:
+                    print(f"No checkpoint found, starting from scratch")
             
             # Train
             history = trainer.train(epochs=args.epochs, learning_rate=args.lr, early_stopping_patience=args.patience)
@@ -457,6 +468,15 @@ def main():
             test_loader=test_loader,
             use_mlflow=False
         )
+        
+        # Resume from checkpoint if requested
+        if args.resume:
+            checkpoint_file = 'latest_checkpoint.pth' if args.resume == 'latest' else 'best_model.pth'
+            print(f"\nAttempting to resume from {checkpoint_file}...")
+            if trainer.load_checkpoint(checkpoint_file, resume_training=True):
+                print(f"Successfully resumed from {args.resume} checkpoint")
+            else:
+                print(f"No checkpoint found, starting from scratch")
         
         history = trainer.train(epochs=args.epochs, learning_rate=args.lr, early_stopping_patience=args.patience)
         
