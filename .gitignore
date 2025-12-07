@@ -5,3 +5,7 @@ venv/
 data/
 
 mlruns/
+
+checkpoints/
+
+mlflow.db
