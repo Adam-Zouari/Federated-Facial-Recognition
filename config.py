@@ -66,6 +66,7 @@ LOGS_DIR = './logs'
 PLOTS_DIR = './plots'
 
 # MLflow configuration
-MLFLOW_TRACKING_URI = './mlruns'
+# Using SQLite backend to avoid filesystem deprecation (Feb 2026)
+MLFLOW_TRACKING_URI = 'sqlite:///mlflow.db'
 MLFLOW_EXPERIMENT_PREFIX = 'facial_recognition'
 MLFLOW_ENABLE = True  # Set to False to disable MLflow tracking
