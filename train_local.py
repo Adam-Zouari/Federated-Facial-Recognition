@@ -5,6 +5,7 @@ Each client trains independently on their own dataset.
 
 import argparse
 import os
+from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
