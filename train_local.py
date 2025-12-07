@@ -142,13 +142,34 @@ class LocalTrainer:
         optimizer = self.optimizer
         
         # Compute class weights for balanced loss (even with stratification)
-        all_labels = []
-        for _, labels in self.train_loader:
-            all_labels.extend(labels.tolist())
+        # Use caching to avoid recomputing on every run
+        cache_dir = Path("checkpoints") / "class_weights"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{self.client_name}_class_weights.pth"
         
-        unique_labels = torch.unique(torch.tensor(all_labels))
-        num_classes = len(unique_labels)
-        class_counts = torch.bincount(torch.tensor(all_labels), minlength=num_classes)
+        if cache_file.exists():
+            print(f"Loading cached class weights from {cache_file}")
+            cache_data = torch.load(cache_file, map_location='cpu', weights_only=False)
+            class_counts = cache_data['class_counts']
+            num_classes = cache_data['num_classes']
+        else:
+            print(f"Computing class weights (first run - will be cached to {cache_file})...")
+            all_labels = []
+            for _, labels in self.train_loader:
+                all_labels.extend(labels.tolist())
+            
+            unique_labels = torch.unique(torch.tensor(all_labels))
+            num_classes = len(unique_labels)
+            class_counts = torch.bincount(torch.tensor(all_labels), minlength=num_classes)
+            
+            # Cache for future runs
+            torch.save({
+                'num_classes': num_classes,
+                'class_counts': class_counts,
+                'dataset': self.client_name
+            }, cache_file)
+            print(f"Class weights cached to {cache_file}")
+        
         class_weights = 1.0 / class_counts.float()
         class_weights = class_weights / class_weights.sum() * num_classes  # Normalize
         class_weights = class_weights.to(self.device)
