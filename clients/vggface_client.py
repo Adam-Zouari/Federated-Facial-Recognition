@@ -62,16 +62,56 @@ class VGGFace2Dataset(Dataset):
         if max_identities is not None:
             person_images = person_images[:max_identities]
         
-        # Create label mapping and collect all image paths
+        # Create label mapping and collect image paths with stratification
+        MIN_SAMPLES = 20  # Minimum images per identity
         for idx, (person, images) in enumerate(person_images):
             self.person_to_idx[person] = idx
             person_dir = os.path.join(self.data_dir, person)
+            
+            # Filter out identities with too few samples
+            if len(images) < MIN_SAMPLES:
+                continue
+            
+            # Apply stratification based on split
+            if split == 'train':
+                # For training, use all available images or balance if needed
+                # Find minimum samples across all valid identities first
+                pass  # Will be handled after loop
+            else:
+                # For val/test, stratify to ensure balanced evaluation
+                target_samples = min(len(images), 15)  # Cap at 15 for val/test
+                images = sorted(images)[:target_samples]  # Take first N for consistency
+            
             for img_name in images:
                 img_path = os.path.join(person_dir, img_name)
                 self.data.append(img_path)
                 self.labels.append(idx)
         
-        print(f"VGGFace2 {split}: Loaded {len(self.data)} images from {len(person_images)} identities")
+        # Balance training data to minimum samples per identity
+        if split == 'train' and len(self.data) > 0:
+            import numpy as np
+            data_array = np.array(self.data)
+            labels_array = np.array(self.labels)
+            
+            unique_labels, counts = np.unique(labels_array, return_counts=True)
+            min_count = counts.min() if len(counts) > 0 else 0
+            
+            if min_count >= MIN_SAMPLES:
+                balanced_indices = []
+                for label in unique_labels:
+                    label_indices = np.where(labels_array == label)[0]
+                    selected = np.random.RandomState(42).choice(label_indices, min_count, replace=False)
+                    balanced_indices.extend(selected)
+                
+                self.data = data_array[balanced_indices].tolist()
+                self.labels = labels_array[balanced_indices].tolist()
+                balance_info = f" (balanced: {min_count} per identity)"
+            else:
+                balance_info = ""
+        else:
+            balance_info = " (stratified)" if split != 'train' else ""
+        
+        print(f"VGGFace2 {split}: Loaded {len(self.data)} images from {len(self.person_to_idx)} identities{balance_info}")
     
     def __len__(self):
         return len(self.data)

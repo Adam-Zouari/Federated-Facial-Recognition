@@ -73,10 +73,19 @@ class CelebADataset(Dataset):
             top_identities = self.data['identity'].value_counts().head(max_identities).index
             self.data = self.data[self.data['identity'].isin(top_identities)]
         
-        # Balance dataset ONLY for training split
-        # Val/test splits keep all samples for better evaluation
+        # Stratification for all splits to ensure balanced class representation
+        MIN_SAMPLES = 20  # Require at least 20 images per identity
+        identity_counts = self.data['identity'].value_counts()
+        
+        # Keep only identities with enough samples
+        valid_identities = identity_counts[identity_counts >= MIN_SAMPLES].index
+        self.data = self.data[self.data['identity'].isin(valid_identities)]
+        
+        # Recalculate after filtering
+        identity_counts = self.data['identity'].value_counts()
+        
         if split == 'train':
-            identity_counts = self.data['identity'].value_counts()
+            # Balance training to minimum samples per identity
             min_samples = identity_counts.min()
             
             balanced_data = []
@@ -87,9 +96,22 @@ class CelebADataset(Dataset):
                 balanced_data.append(sampled)
             
             self.data = pd.concat(balanced_data, ignore_index=True)
-            balance_info = f" ({min_samples} per identity)"
+            balance_info = f" (balanced: {min_samples} per identity, min {MIN_SAMPLES} required)"
         else:
-            balance_info = ""
+            # Stratify val/test to ensure proportional representation
+            # Use same ratio across all identities for fair evaluation
+            stratified_data = []
+            target_samples = min(identity_counts.min(), 15)  # Cap at 15 for val/test
+            
+            for identity in self.data['identity'].unique():
+                identity_data = self.data[self.data['identity'] == identity]
+                n_samples = min(len(identity_data), target_samples)
+                # Sample proportionally from each identity
+                sampled = identity_data.sample(n=n_samples, random_state=42)
+                stratified_data.append(sampled)
+            
+            self.data = pd.concat(stratified_data, ignore_index=True)
+            balance_info = f" (stratified: ~{target_samples} per identity)"
         
         # Remap identity labels to contiguous range starting from 0
         unique_identities = sorted(self.data['identity'].unique())
@@ -126,7 +148,7 @@ class CelebADataset(Dataset):
         return len(self.identity_map)
 
 
-def load_celeba_data(root_dir=None, batch_size=None, num_workers=4, max_identities=1000):
+def load_celeba_data(root_dir=None, batch_size=None, num_workers=4, max_identities=None):
     """
     Load CelebA dataset with official train/val/test splits.
     
