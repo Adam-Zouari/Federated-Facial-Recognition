@@ -47,6 +47,10 @@ class LocalTrainer:
         
         self.metrics_tracker = MetricsTracker()
         self.best_val_acc = 0.0
+        self.best_val_loss = float('inf')
+        self.current_epoch = 0
+        self.optimizer = None
+        self.scheduler = None
     
     def train_epoch(self, optimizer, criterion, epoch):
         """Train for one epoch."""
@@ -78,8 +82,8 @@ class LocalTrainer:
             total_samples += batch_size
             
             pbar.set_postfix({
-                'loss': f'{total_loss/total_samples:.4f}',
-                'acc': f'{total_correct/total_samples:.4f}'
+                'loss': f'{total_loss/total_samples:.6f}',
+                'acc': f'{total_correct/total_samples:.6f}'
             })
         
         avg_loss = total_loss / total_samples
@@ -132,7 +136,10 @@ class LocalTrainer:
         learning_rate = learning_rate or config.LOCAL_LEARNING_RATE
         early_stopping_patience = early_stopping_patience or config.EARLY_STOPPING_PATIENCE
         
-        optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        # Create or reuse optimizer
+        if self.optimizer is None:
+            self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = self.optimizer
         
         # Compute class weights for balanced loss (even with stratification)
         all_labels = []
@@ -149,21 +156,29 @@ class LocalTrainer:
         criterion = nn.CrossEntropyLoss(weight=class_weights)
         print(f"Using class-weighted loss (weights range: {class_weights.min():.3f} - {class_weights.max():.3f})")
         
-        # Learning rate scheduler: reduce LR when validation loss plateaus
-        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+        # Create or reuse learning rate scheduler
+        if self.scheduler is None:
+            self.scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+        scheduler = self.scheduler
         
         print(f"\nStarting Local Training for {self.client_name}")
         print(f"Epochs: {epochs}, LR: {learning_rate}")
+        if self.current_epoch > 0:
+            print(f"Resuming from epoch {self.current_epoch + 1}")
         print("="*60)
         
         patience_counter = 0
+        start_epoch = self.current_epoch + 1
         
-        for epoch in range(1, epochs + 1):
+        for epoch in range(start_epoch, epochs + 1):
             # Train
             train_loss, train_acc = self.train_epoch(optimizer, criterion, epoch)
             
             # Validate
             val_loss, val_acc = self.validate(criterion)
+            
+            # Update current epoch
+            self.current_epoch = epoch
             
             # Update learning rate based on validation loss
             scheduler.step(val_loss)
@@ -189,49 +204,90 @@ class LocalTrainer:
                 }, step=epoch)
             
             print(f"Epoch {epoch}/{epochs} - "
-                  f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
-                  f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+                  f"Train Loss: {train_loss:.6f}, Train Acc: {train_acc:.6f}, "
+                  f"Val Loss: {val_loss:.6f}, Val Acc: {val_acc:.6f}")
             
-            # Save best model
+            # Save best model based on validation accuracy
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
+                self.best_val_loss = val_loss
                 self.save_checkpoint('best_model.pth')
                 patience_counter = 0
-                print(f"  New best model! Val Acc: {val_acc:.4f}")
+                print(f"  New best model! Val Acc: {val_acc:.6f}")
             else:
                 patience_counter += 1
             
-            # Early stopping
+            # Save latest checkpoint for resumption
+            self.save_checkpoint('latest_checkpoint.pth')
+            
+            # Early stopping based on validation loss
             if patience_counter >= early_stopping_patience:
                 print(f"\nEarly stopping triggered after {epoch} epochs")
                 break
         
         print("\n" + "="*60)
         print("Training Complete!")
-        print(f"Best Validation Accuracy: {self.best_val_acc:.4f}")
+        print(f"Best Validation Accuracy: {self.best_val_acc:.6f}")
         
         return self.metrics_tracker.metrics
     
     def save_checkpoint(self, filename):
-        """Save model checkpoint."""
+        """Save complete model checkpoint for training resumption."""
         filepath = os.path.join(self.checkpoint_dir, 'local', self.client_name, filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        torch.save({
+        checkpoint = {
+            'epoch': self.current_epoch,
             'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict() if self.optimizer else None,
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
             'best_val_acc': self.best_val_acc,
+            'best_val_loss': self.best_val_loss,
             'metrics': self.metrics_tracker.metrics
-        }, filepath)
+        }
+        
+        torch.save(checkpoint, filepath)
+        print(f"  Checkpoint saved: {filename}")
     
-    def load_checkpoint(self, filename):
-        """Load model checkpoint."""
+    def load_checkpoint(self, filename, resume_training=False):
+        """Load model checkpoint and optionally resume training state.
+        
+        Args:
+            filename: Checkpoint filename
+            resume_training: If True, restore optimizer, scheduler, and epoch state
+        """
         filepath = os.path.join(self.checkpoint_dir, 'local', self.client_name, filename)
+        
+        if not os.path.exists(filepath):
+            print(f"Warning: Checkpoint not found at {filepath}")
+            return False
+        
         checkpoint = torch.load(filepath, map_location=self.device)
         
+        # Always load model weights
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.best_val_acc = checkpoint.get('best_val_acc', 0.0)
+        self.best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+        
         if 'metrics' in checkpoint:
             self.metrics_tracker.metrics = checkpoint['metrics']
+        
+        # Optionally restore training state for resumption
+        if resume_training:
+            self.current_epoch = checkpoint.get('epoch', 0)
+            
+            if checkpoint.get('optimizer_state_dict') and self.optimizer:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                print(f"  Optimizer state restored")
+            
+            if checkpoint.get('scheduler_state_dict') and self.scheduler:
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                print(f"  Scheduler state restored")
+            
+            print(f"  Resuming from epoch {self.current_epoch}")
+        
+        print(f"  Checkpoint loaded: {filename}")
+        return True
 
 
 def main():
