@@ -47,12 +47,28 @@ FEDPROX_MU = 0.01  # Proximal term coefficient
 # Data augmentation
 AUGMENTATION_CONFIG = {
     'horizontal_flip': 0.5,
-    'rotation': 15,
+    'rotation': 30,  # Increased from 15 for more variation
     'color_jitter': {
-        'brightness': 0.2,
-        'contrast': 0.2,
-        'saturation': 0.2,
-        'hue': 0.1
+        'brightness': 0.4,  # Increased from 0.2
+        'contrast': 0.4,    # Increased from 0.2
+        'saturation': 0.3,  # Increased from 0.2
+        'hue': 0.15         # Increased from 0.1
+    },
+    'random_affine': {
+        'degrees': 0,
+        'translate': (0.1, 0.1),  # Up to 10% translation
+        'scale': (0.9, 1.1),      # 90-110% scaling
+        'shear': 10               # Up to 10 degrees shear
+    },
+    'random_perspective': 0.2,  # Distortion scale
+    'random_erasing': {
+        'p': 0.3,                   # 30% probability
+        'scale': (0.02, 0.15),      # Erase 2-15% of image
+        'ratio': (0.3, 3.3)         # Aspect ratio range
+    },
+    'gaussian_blur': {
+        'kernel_size': 5,
+        'sigma': (0.1, 2.0)
     }
 }
 

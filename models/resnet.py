@@ -33,11 +33,13 @@ class ResNet18Classifier(nn.Module):
         # Replace the final fully connected layer
         self.resnet.fc = nn.Identity()
         
-        # Add embedding layer
+        # Add embedding layer with dropout for regularization
         self.embedding = nn.Sequential(
+            nn.Dropout(0.3),
             nn.Linear(num_features, embedding_dim),
             nn.BatchNorm1d(embedding_dim),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.2)
         )
         
         # Classification layer

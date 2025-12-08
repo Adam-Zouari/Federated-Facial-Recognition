@@ -34,12 +34,13 @@ class MobileNetV2Classifier(nn.Module):
         # Replace the final classifier
         self.mobilenet.classifier = nn.Identity()
         
-        # Add embedding layer
+        # Add embedding layer with increased dropout
         self.embedding = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(0.4),  # Increased from 0.2 to 0.4
             nn.Linear(num_features, embedding_dim),
             nn.BatchNorm1d(embedding_dim),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3)   # Additional dropout layer
         )
         
         # Classification layer

@@ -68,12 +68,13 @@ class CustomCNN(nn.Module):
         # Global average pooling
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # Fully connected layers
+        # Fully connected layers with increased dropout
         self.fc = nn.Sequential(
-            nn.Dropout(0.5),
+            nn.Dropout(0.6),  # Increased from 0.5
             nn.Linear(256, embedding_dim),
             nn.BatchNorm1d(embedding_dim),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3)   # Additional dropout
         )
         
         # Classification layer

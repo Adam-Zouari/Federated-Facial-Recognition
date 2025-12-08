@@ -14,7 +14,8 @@ from tqdm import tqdm
 import config
 from models import create_model
 from clients import get_client_data
-from utils.metrics import compute_metrics, evaluate_model, print_metrics, MetricsTracker
+from utils.metrics import (compute_metrics, evaluate_model, print_metrics, MetricsTracker,
+                          evaluate_verification, extract_embeddings)
 from utils.plotting import (plot_training_curves, plot_confusion_matrix,
                            plot_roc_curve, plot_embeddings_tsne, plot_embeddings_pca)
 from utils.mlflow_utils import (setup_mlflow, start_run, log_params, log_metrics,
@@ -47,7 +48,8 @@ class LocalTrainer:
         self.use_mlflow = use_mlflow and config.MLFLOW_ENABLE
         
         self.metrics_tracker = MetricsTracker()
-        self.best_val_acc = 0.0
+        self.best_val_auc = 0.0  # Changed from best_val_acc
+        self.best_val_eer = float('inf')  # Track best EER
         self.best_val_loss = float('inf')
         self.current_epoch = 0
         self.optimizer = None
@@ -92,34 +94,43 @@ class LocalTrainer:
         
         return avg_loss, avg_acc
     
-    def validate(self, criterion):
-        """Validate the model."""
+    def validate(self, criterion=None):
+        """
+        Validate the model using embedding-based verification.
+        Returns both classification loss (for training) and verification metrics (AUC, EER).
+        """
         self.model.eval()
         
+        # Compute classification loss for scheduler (still useful for training convergence)
         total_loss = 0.0
-        total_correct = 0
         total_samples = 0
         
-        with torch.no_grad():
-            for images, labels in self.val_loader:
-                images = images.to(self.device)
-                labels = labels.to(self.device)
-                
-                outputs = self.model(images)
-                loss = criterion(outputs, labels)
-                
-                _, predicted = torch.max(outputs, 1)
-                correct = (predicted == labels).sum().item()
-                
-                batch_size = images.size(0)
-                total_loss += loss.item() * batch_size
-                total_correct += correct
-                total_samples += batch_size
+        if criterion is not None:
+            with torch.no_grad():
+                for images, labels in self.val_loader:
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    
+                    outputs = self.model(images)
+                    loss = criterion(outputs, labels)
+                    
+                    batch_size = images.size(0)
+                    total_loss += loss.item() * batch_size
+                    total_samples += batch_size
+            
+            avg_loss = total_loss / total_samples
+        else:
+            avg_loss = 0.0
         
-        avg_loss = total_loss / total_samples
-        avg_acc = total_correct / total_samples
+        # Perform embedding-based verification evaluation
+        verification_metrics = evaluate_verification(
+            self.model, 
+            self.val_loader, 
+            device=self.device,
+            num_pairs=5000  # Limit pairs for faster validation
+        )
         
-        return avg_loss, avg_acc
+        return avg_loss, verification_metrics
     
     def train(self, epochs=None, learning_rate=None, early_stopping_patience=None):
         """
@@ -196,8 +207,10 @@ class LocalTrainer:
             # Train
             train_loss, train_acc = self.train_epoch(optimizer, criterion, epoch)
             
-            # Validate
-            val_loss, val_acc = self.validate(criterion)
+            # Validate using embedding-based verification
+            val_loss, val_metrics = self.validate(criterion)
+            val_auc = val_metrics['auc']
+            val_eer = val_metrics['eer']
             
             # Update current epoch
             self.current_epoch = epoch
@@ -211,7 +224,8 @@ class LocalTrainer:
                 train_loss=train_loss,
                 train_acc=train_acc,
                 val_loss=val_loss,
-                val_acc=val_acc,
+                val_auc=val_auc,
+                val_eer=val_eer,
                 lr=current_lr
             )
             
@@ -221,35 +235,47 @@ class LocalTrainer:
                     'train_loss': train_loss,
                     'train_acc': train_acc,
                     'val_loss': val_loss,
-                    'val_acc': val_acc,
+                    'val_auc': val_auc,
+                    'val_eer': val_eer,
+                    'num_positive_pairs': val_metrics['num_positive_pairs'],
+                    'num_negative_pairs': val_metrics['num_negative_pairs'],
                     'learning_rate': current_lr
                 }, step=epoch)
             
             print(f"Epoch {epoch}/{epochs} - "
                   f"Train Loss: {train_loss:.6f}, Train Acc: {train_acc:.6f}, "
-                  f"Val Loss: {val_loss:.6f}, Val Acc: {val_acc:.6f}")
+                  f"Val Loss: {val_loss:.6f}, Val AUC: {val_auc:.6f}, Val EER: {val_eer:.6f}")
             
-            # Save best model based on validation accuracy
-            if val_acc > self.best_val_acc:
-                self.best_val_acc = val_acc
-                self.best_val_loss = val_loss
+            # Save best model based on validation AUC (higher is better)
+            improved = False
+            if val_auc > self.best_val_auc:
+                self.best_val_auc = val_auc
+                self.best_val_eer = val_eer
+                improved = True
+            # Also consider EER improvement (lower is better)
+            elif val_auc == self.best_val_auc and val_eer < self.best_val_eer:
+                self.best_val_eer = val_eer
+                improved = True
+            
+            if improved:
                 self.save_checkpoint('best_model.pth')
                 patience_counter = 0
-                print(f"  New best model! Val Acc: {val_acc:.6f}")
+                print(f"  New best model! Val AUC: {val_auc:.6f}, Val EER: {val_eer:.6f}")
             else:
                 patience_counter += 1
             
             # Save latest checkpoint for resumption
             self.save_checkpoint('latest_checkpoint.pth')
             
-            # Early stopping based on validation loss
+            # Early stopping based on patience
             if patience_counter >= early_stopping_patience:
                 print(f"\nEarly stopping triggered after {epoch} epochs")
                 break
         
         print("\n" + "="*60)
         print("Training Complete!")
-        print(f"Best Validation Accuracy: {self.best_val_acc:.6f}")
+        print(f"Best Validation AUC: {self.best_val_auc:.6f}")
+        print(f"Best Validation EER: {self.best_val_eer:.6f}")
         
         return self.metrics_tracker.metrics
     
@@ -263,7 +289,8 @@ class LocalTrainer:
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict() if self.optimizer else None,
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
-            'best_val_acc': self.best_val_acc,
+            'best_val_auc': self.best_val_auc,
+            'best_val_eer': self.best_val_eer,
             'best_val_loss': self.best_val_loss,
             'metrics': self.metrics_tracker.metrics
         }
@@ -288,7 +315,8 @@ class LocalTrainer:
         
         # Always load model weights
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.best_val_acc = checkpoint.get('best_val_acc', 0.0)
+        self.best_val_auc = checkpoint.get('best_val_auc', 0.0)
+        self.best_val_eer = checkpoint.get('best_val_eer', float('inf'))
         self.best_val_loss = checkpoint.get('best_val_loss', float('inf'))
         
         if 'metrics' in checkpoint:
@@ -410,70 +438,85 @@ def main():
             print("\nEvaluating on test set...")
             trainer.load_checkpoint('best_model.pth')
             
-            results = evaluate_model(trainer.model, test_loader, return_embeddings=True)
-            metrics = compute_metrics(
-                results['labels'],
-                results['predictions'],
-                results['scores'],
-                num_classes=num_classes
+            # Final test evaluation using embedding-based verification
+            print("\n" + "="*60)
+            print(f"Final Test Evaluation - Embedding-Based Verification")
+            print("="*60)
+            
+            test_metrics = evaluate_verification(
+                trainer.model,
+                test_loader,
+                device=config.DEVICE,
+                num_pairs=None  # Use all possible pairs for final test
             )
             
-            print_metrics(metrics, f"{args.client.upper()} - {args.model} - Test Set")
+            print(f"\nTest Set Results:")
+            print(f"  AUC: {test_metrics['auc']:.6f}")
+            print(f"  EER: {test_metrics['eer']:.6f}")
+            print(f"  EER Threshold: {test_metrics['eer_threshold']:.6f}")
+            print(f"  Positive Pairs: {test_metrics['num_positive_pairs']}")
+            print(f"  Negative Pairs: {test_metrics['num_negative_pairs']}")
             
             # Log test metrics
             if use_mlflow:
                 log_metrics({
-                    'test_accuracy': metrics['accuracy'],
-                    'test_precision': metrics['precision'],
-                    'test_recall': metrics['recall'],
-                    'test_f1': metrics['f1_score'],
+                    'test_auc': test_metrics['auc'],
+                    'test_eer': test_metrics['eer'],
+                    'test_eer_threshold': test_metrics['eer_threshold'],
+                    'test_num_positive_pairs': test_metrics['num_positive_pairs'],
+                    'test_num_negative_pairs': test_metrics['num_negative_pairs']
                 })
-                if 'roc_auc' in metrics:
-                    log_metrics({'test_roc_auc': metrics['roc_auc']})
             
             # Save visualizations
-            fig_cm = plot_confusion_matrix(metrics['confusion_matrix'],
-                                 save_path=os.path.join(plots_dir, f'{args.model}_confusion_matrix.png'))
-            if use_mlflow and fig_cm is not None:
-                log_figure(fig_cm, f"{args.model}_confusion_matrix.png")
-                plt.close(fig_cm)
+            # Plot ROC curve for verification
+            fig_roc = plot_roc_curve(
+                test_metrics['fpr'], 
+                test_metrics['tpr'], 
+                test_metrics['auc'],
+                save_path=os.path.join(plots_dir, f'{args.model}_verification_roc_curve.png'),
+                label=f'{args.model} Verification'
+            )
+            if use_mlflow and fig_roc is not None:
+                log_figure(fig_roc, f"{args.model}_verification_roc_curve.png")
+                plt.close(fig_roc)
             
-            if 'fpr' in metrics and 'tpr' in metrics:
-                fig_roc = plot_roc_curve(metrics['fpr'], metrics['tpr'], metrics.get('roc_auc'),
-                              save_path=os.path.join(plots_dir, f'{args.model}_roc_curve.png'),
-                              label=args.model)
-                if use_mlflow and fig_roc is not None:
-                    log_figure(fig_roc, f"{args.model}_roc_curve.png")
-                    plt.close(fig_roc)
+            # Extract embeddings for visualization
+            embeddings, labels = extract_embeddings(trainer.model, test_loader, device=config.DEVICE)
             
-            if 'embeddings' in results:
-                fig_tsne = plot_embeddings_tsne(results['embeddings'], results['labels'],
-                                   save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png'))
-                if use_mlflow and fig_tsne is not None:
-                    log_figure(fig_tsne, f"{args.model}_embeddings_tsne.png")
-                    plt.close(fig_tsne)
+            fig_tsne = plot_embeddings_tsne(
+                embeddings, 
+                labels,
+                save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png')
+            )
+            if use_mlflow and fig_tsne is not None:
+                log_figure(fig_tsne, f"{args.model}_embeddings_tsne.png")
+                plt.close(fig_tsne)
                     
-                fig_pca = plot_embeddings_pca(results['embeddings'], results['labels'],
-                                  save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png'))
-                if use_mlflow and fig_pca is not None:
-                    log_figure(fig_pca, f"{args.model}_embeddings_pca.png")
-                    plt.close(fig_pca)
+            fig_pca = plot_embeddings_pca(
+                embeddings, 
+                labels,
+                save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png')
+            )
+            if use_mlflow and fig_pca is not None:
+                log_figure(fig_pca, f"{args.model}_embeddings_pca.png")
+                plt.close(fig_pca)
             
             # Save metrics to file and log to MLflow
             import json
-            metrics_file = os.path.join(plots_dir, f'{args.model}_metrics.json')
+            metrics_file = os.path.join(plots_dir, f'{args.model}_verification_metrics.json')
             with open(metrics_file, 'w') as f:
                 # Convert numpy arrays to lists for JSON serialization
-                metrics_serializable = {}
-                for key, value in metrics.items():
-                    if isinstance(value, (list, dict, str, int, float)):
-                        metrics_serializable[key] = value
-                    elif hasattr(value, 'tolist'):
-                        metrics_serializable[key] = value.tolist()
+                metrics_serializable = {
+                    'auc': float(test_metrics['auc']),
+                    'eer': float(test_metrics['eer']),
+                    'eer_threshold': float(test_metrics['eer_threshold']),
+                    'num_positive_pairs': int(test_metrics['num_positive_pairs']),
+                    'num_negative_pairs': int(test_metrics['num_negative_pairs'])
+                }
                 json.dump(metrics_serializable, f, indent=2)
             
             if use_mlflow:
-                log_dict(metrics_serializable, f"{args.model}_metrics.json")
+                log_dict(metrics_serializable, f"{args.model}_verification_metrics.json")
                 # Log the best model
                 log_model(trainer.model, artifact_path="model", 
                          registered_model_name=f"{args.client}_{args.model}_local")
@@ -510,39 +553,51 @@ def main():
         print("\nEvaluating on test set...")
         trainer.load_checkpoint('best_model.pth')
         
-        results = evaluate_model(trainer.model, test_loader, return_embeddings=True)
-        metrics = compute_metrics(
-            results['labels'],
-            results['predictions'],
-            results['scores'],
-            num_classes=num_classes
+        # Final test evaluation using embedding-based verification
+        print("\n" + "="*60)
+        print(f"Final Test Evaluation - Embedding-Based Verification")
+        print("="*60)
+        
+        test_metrics = evaluate_verification(
+            trainer.model,
+            test_loader,
+            device=config.DEVICE,
+            num_pairs=None  # Use all possible pairs for final test
         )
         
-        print_metrics(metrics, f"{args.client.upper()} - {args.model} - Test Set")
+        print(f"\nTest Set Results:")
+        print(f"  AUC: {test_metrics['auc']:.6f}")
+        print(f"  EER: {test_metrics['eer']:.6f}")
+        print(f"  EER Threshold: {test_metrics['eer_threshold']:.6f}")
+        print(f"  Positive Pairs: {test_metrics['num_positive_pairs']}")
+        print(f"  Negative Pairs: {test_metrics['num_negative_pairs']}")
         
-        plot_confusion_matrix(metrics['confusion_matrix'],
-                             save_path=os.path.join(plots_dir, f'{args.model}_confusion_matrix.png'))
+        # Plot verification ROC curve
+        plot_roc_curve(
+            test_metrics['fpr'], 
+            test_metrics['tpr'], 
+            test_metrics['auc'],
+            save_path=os.path.join(plots_dir, f'{args.model}_verification_roc_curve.png'),
+            label=f'{args.model} Verification'
+        )
         
-        if 'fpr' in metrics and 'tpr' in metrics:
-            plot_roc_curve(metrics['fpr'], metrics['tpr'], metrics.get('roc_auc'),
-                          save_path=os.path.join(plots_dir, f'{args.model}_roc_curve.png'),
-                          label=args.model)
-        
-        if 'embeddings' in results:
-            plot_embeddings_tsne(results['embeddings'], results['labels'],
-                               save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png'))
-            plot_embeddings_pca(results['embeddings'], results['labels'],
-                              save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png'))
+        # Extract and visualize embeddings
+        embeddings, labels = extract_embeddings(trainer.model, test_loader, device=config.DEVICE)
+        plot_embeddings_tsne(embeddings, labels,
+                           save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png'))
+        plot_embeddings_pca(embeddings, labels,
+                          save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png'))
         
         import json
-        metrics_file = os.path.join(plots_dir, f'{args.model}_metrics.json')
+        metrics_file = os.path.join(plots_dir, f'{args.model}_verification_metrics.json')
         with open(metrics_file, 'w') as f:
-            metrics_serializable = {}
-            for key, value in metrics.items():
-                if isinstance(value, (list, dict, str, int, float)):
-                    metrics_serializable[key] = value
-                elif hasattr(value, 'tolist'):
-                    metrics_serializable[key] = value.tolist()
+            metrics_serializable = {
+                'auc': float(test_metrics['auc']),
+                'eer': float(test_metrics['eer']),
+                'eer_threshold': float(test_metrics['eer_threshold']),
+                'num_positive_pairs': int(test_metrics['num_positive_pairs']),
+                'num_negative_pairs': int(test_metrics['num_negative_pairs'])
+            }
             json.dump(metrics_serializable, f, indent=2)
         
         print(f"\nLocal training complete for {args.client}!")

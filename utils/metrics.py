@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 import config
+from itertools import combinations
+import random
 
 
 def compute_metrics(y_true, y_pred, y_scores=None, num_classes=None):
@@ -161,14 +163,17 @@ class MetricsTracker:
             'train_acc': [],
             'val_loss': [],
             'val_acc': [],
+            'val_auc': [],
+            'val_eer': [],
             'lr': []
         }
     
     def update(self, **kwargs):
         """Update metrics with new values."""
         for key, value in kwargs.items():
-            if key in self.metrics:
-                self.metrics[key].append(value)
+            if key not in self.metrics:
+                self.metrics[key] = []
+            self.metrics[key].append(value)
     
     def get_latest(self, key):
         """Get the latest value for a metric."""
@@ -215,3 +220,192 @@ class AverageMeter:
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def extract_embeddings(model, data_loader, device=None):
+    """
+    Extract embeddings from a model for all samples in the dataset.
+    
+    Args:
+        model: PyTorch model with return_embedding support
+        data_loader: DataLoader for the dataset
+        device: Device to use
+        
+    Returns:
+        embeddings: numpy array of shape (N, embedding_dim)
+        labels: numpy array of shape (N,)
+    """
+    device = device or config.DEVICE
+    model.eval()
+    
+    all_embeddings = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for images, labels in tqdm(data_loader, desc="Extracting embeddings"):
+            images = images.to(device)
+            
+            # Get embeddings from model
+            _, embeddings = model(images, return_embedding=True)
+            
+            all_embeddings.append(embeddings.cpu().numpy())
+            all_labels.extend(labels.numpy())
+    
+    embeddings = np.vstack(all_embeddings)
+    labels = np.array(all_labels)
+    
+    return embeddings, labels
+
+
+def cosine_similarity(emb1, emb2):
+    """
+    Compute cosine similarity between two embeddings.
+    
+    Args:
+        emb1: First embedding (can be 1D or 2D array)
+        emb2: Second embedding (can be 1D or 2D array)
+        
+    Returns:
+        Cosine similarity score(s)
+    """
+    # Normalize embeddings
+    emb1_norm = emb1 / (np.linalg.norm(emb1, axis=-1, keepdims=True) + 1e-8)
+    emb2_norm = emb2 / (np.linalg.norm(emb2, axis=-1, keepdims=True) + 1e-8)
+    
+    # Compute cosine similarity
+    return np.sum(emb1_norm * emb2_norm, axis=-1)
+
+
+def create_verification_pairs(embeddings, labels, num_pairs=None):
+    """
+    Create positive and negative pairs for verification.
+    
+    Args:
+        embeddings: Embeddings array (N, embedding_dim)
+        labels: Labels array (N,)
+        num_pairs: Number of pairs to create (None = use all possible positive pairs)
+        
+    Returns:
+        pairs: List of (emb1, emb2) tuples
+        pair_labels: List of labels (1 for positive, 0 for negative)
+        similarities: List of cosine similarities
+    """
+    # Group embeddings by identity
+    identity_to_indices = {}
+    for idx, label in enumerate(labels):
+        if label not in identity_to_indices:
+            identity_to_indices[label] = []
+        identity_to_indices[label].append(idx)
+    
+    positive_pairs = []
+    negative_pairs = []
+    
+    # Create positive pairs (same identity)
+    for identity, indices in identity_to_indices.items():
+        if len(indices) >= 2:
+            # Create all combinations of pairs for this identity
+            for idx1, idx2 in combinations(indices, 2):
+                positive_pairs.append((embeddings[idx1], embeddings[idx2]))
+    
+    # Limit number of positive pairs if specified
+    if num_pairs is not None and len(positive_pairs) > num_pairs:
+        positive_pairs = random.sample(positive_pairs, num_pairs)
+    
+    num_positive = len(positive_pairs)
+    
+    # Create equal number of negative pairs (different identities)
+    identities = list(identity_to_indices.keys())
+    attempts = 0
+    max_attempts = num_positive * 10  # Prevent infinite loop
+    
+    while len(negative_pairs) < num_positive and attempts < max_attempts:
+        # Randomly select two different identities
+        id1, id2 = random.sample(identities, 2)
+        
+        # Randomly select one sample from each identity
+        idx1 = random.choice(identity_to_indices[id1])
+        idx2 = random.choice(identity_to_indices[id2])
+        
+        negative_pairs.append((embeddings[idx1], embeddings[idx2]))
+        attempts += 1
+    
+    # Combine pairs and create labels
+    all_pairs = positive_pairs + negative_pairs
+    pair_labels = [1] * len(positive_pairs) + [0] * len(negative_pairs)
+    
+    # Compute similarities
+    similarities = []
+    for emb1, emb2 in all_pairs:
+        sim = cosine_similarity(emb1, emb2)
+        similarities.append(sim)
+    
+    return all_pairs, np.array(pair_labels), np.array(similarities)
+
+
+def compute_eer(labels, scores):
+    """
+    Compute Equal Error Rate (EER).
+    
+    Args:
+        labels: True labels (1 for positive, 0 for negative)
+        scores: Similarity scores
+        
+    Returns:
+        eer: Equal Error Rate
+        threshold: Threshold at EER
+    """
+    fpr, tpr, thresholds = roc_curve(labels, scores)
+    fnr = 1 - tpr
+    
+    # Find the threshold where FPR and FNR are closest
+    eer_idx = np.nanargmin(np.abs(fpr - fnr))
+    eer = (fpr[eer_idx] + fnr[eer_idx]) / 2
+    threshold = thresholds[eer_idx]
+    
+    return eer, threshold
+
+
+def evaluate_verification(model, data_loader, device=None, num_pairs=None):
+    """
+    Evaluate model using embedding-based verification.
+    
+    Args:
+        model: PyTorch model with return_embedding support
+        data_loader: DataLoader for evaluation
+        device: Device to use
+        num_pairs: Number of pairs to create (None = use all possible)
+        
+    Returns:
+        Dictionary with AUC, EER, and other verification metrics
+    """
+    device = device or config.DEVICE
+    
+    # Extract embeddings
+    embeddings, labels = extract_embeddings(model, data_loader, device)
+    
+    # Create verification pairs
+    pairs, pair_labels, similarities = create_verification_pairs(
+        embeddings, labels, num_pairs=num_pairs
+    )
+    
+    # Compute ROC curve and AUC
+    fpr, tpr, thresholds = roc_curve(pair_labels, similarities)
+    roc_auc = auc(fpr, tpr)
+    
+    # Compute EER
+    eer, eer_threshold = compute_eer(pair_labels, similarities)
+    
+    metrics = {
+        'auc': roc_auc,
+        'eer': eer,
+        'eer_threshold': eer_threshold,
+        'num_positive_pairs': np.sum(pair_labels == 1),
+        'num_negative_pairs': np.sum(pair_labels == 0),
+        'fpr': fpr,
+        'tpr': tpr,
+        'thresholds': thresholds,
+        'similarities': similarities,
+        'pair_labels': pair_labels
+    }
+    
+    return metrics
