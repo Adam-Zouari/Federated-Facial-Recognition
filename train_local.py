@@ -17,7 +17,7 @@ from clients import get_client_data
 from utils.metrics import (compute_metrics, evaluate_model, print_metrics, MetricsTracker,
                           evaluate_verification, extract_embeddings)
 from utils.plotting import (plot_training_curves, plot_confusion_matrix,
-                           plot_roc_curve, plot_embeddings_tsne, plot_embeddings_pca)
+                           plot_roc_curve)
 from utils.mlflow_utils import (setup_mlflow, start_run, log_params, log_metrics,
                                 log_model, log_figure, log_dict, end_run)
 
@@ -440,7 +440,7 @@ def main():
             history = trainer.train(epochs=args.epochs, learning_rate=args.lr, early_stopping_patience=args.patience)
             
             # Save training curves
-            plots_dir = os.path.join(config.PLOTS_DIR, 'local', args.client)
+            plots_dir = os.path.join(config.PLOTS_DIR, 'local', f"{args.client}_{args.augmentation}")
             os.makedirs(plots_dir, exist_ok=True)
             
             import matplotlib.pyplot as plt
@@ -496,27 +496,6 @@ def main():
                 log_figure(fig_roc, f"{args.model}_verification_roc_curve.png")
                 plt.close(fig_roc)
             
-            # Extract embeddings for visualization
-            embeddings, labels = extract_embeddings(trainer.model, test_loader, device=config.DEVICE)
-            
-            fig_tsne = plot_embeddings_tsne(
-                embeddings, 
-                labels,
-                save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png')
-            )
-            if use_mlflow and fig_tsne is not None:
-                log_figure(fig_tsne, f"{args.model}_embeddings_tsne.png")
-                plt.close(fig_tsne)
-                    
-            fig_pca = plot_embeddings_pca(
-                embeddings, 
-                labels,
-                save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png')
-            )
-            if use_mlflow and fig_pca is not None:
-                log_figure(fig_pca, f"{args.model}_embeddings_pca.png")
-                plt.close(fig_pca)
-            
             # Save metrics to file and log to MLflow
             import json
             metrics_file = os.path.join(plots_dir, f'{args.model}_verification_metrics.json')
@@ -561,7 +540,7 @@ def main():
         
         history = trainer.train(epochs=args.epochs, learning_rate=args.lr, early_stopping_patience=args.patience)
         
-        plots_dir = os.path.join(config.PLOTS_DIR, 'local', args.client)
+        plots_dir = os.path.join(config.PLOTS_DIR, 'local', f"{args.client}_{args.augmentation}")
         os.makedirs(plots_dir, exist_ok=True)
         plot_training_curves(trainer.metrics_tracker,
                             save_path=os.path.join(plots_dir, f'{args.model}_training_curves.png'))
@@ -596,13 +575,6 @@ def main():
             save_path=os.path.join(plots_dir, f'{args.model}_verification_roc_curve.png'),
             label=f'{args.model} Verification'
         )
-        
-        # Extract and visualize embeddings
-        embeddings, labels = extract_embeddings(trainer.model, test_loader, device=config.DEVICE)
-        plot_embeddings_tsne(embeddings, labels,
-                           save_path=os.path.join(plots_dir, f'{args.model}_embeddings_tsne.png'))
-        plot_embeddings_pca(embeddings, labels,
-                          save_path=os.path.join(plots_dir, f'{args.model}_embeddings_pca.png'))
         
         import json
         metrics_file = os.path.join(plots_dir, f'{args.model}_verification_metrics.json')
