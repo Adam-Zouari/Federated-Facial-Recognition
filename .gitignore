@@ -9,3 +9,5 @@ mlruns/
 checkpoints/
 
 mlflow.db
+
+plots/
