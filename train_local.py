@@ -99,30 +99,9 @@ class LocalTrainer:
     def validate(self, criterion=None):
         """
         Validate the model using embedding-based verification.
-        Returns both classification loss (for training) and verification metrics (AUC, EER).
+        Returns verification metrics (AUC, EER).
         """
         self.model.eval()
-        
-        # Compute classification loss for scheduler (still useful for training convergence)
-        total_loss = 0.0
-        total_samples = 0
-        
-        if criterion is not None:
-            with torch.no_grad():
-                for images, labels in self.val_loader:
-                    images = images.to(self.device)
-                    labels = labels.to(self.device)
-                    
-                    outputs = self.model(images)
-                    loss = criterion(outputs, labels)
-                    
-                    batch_size = images.size(0)
-                    total_loss += loss.item() * batch_size
-                    total_samples += batch_size
-            
-            avg_loss = total_loss / total_samples
-        else:
-            avg_loss = 0.0
         
         # Perform embedding-based verification evaluation
         verification_metrics = evaluate_verification(
@@ -132,7 +111,7 @@ class LocalTrainer:
             num_pairs=5000  # Limit pairs for faster validation
         )
         
-        return avg_loss, verification_metrics
+        return verification_metrics
     
     def train(self, epochs=None, learning_rate=None, early_stopping_patience=None):
         """
@@ -192,9 +171,9 @@ class LocalTrainer:
         criterion = nn.CrossEntropyLoss(weight=class_weights)
         print(f"Using class-weighted loss (weights range: {class_weights.min():.3f} - {class_weights.max():.3f})")
         
-        # Create or reuse learning rate scheduler
+        # Create or reuse learning rate scheduler (monitors AUC - higher is better)
         if self.scheduler is None:
-            self.scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+            self.scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, verbose=True)
         scheduler = self.scheduler
         
         print(f"\nStarting Local Training for {self.client_name}")
@@ -211,22 +190,21 @@ class LocalTrainer:
             train_loss, train_acc = self.train_epoch(optimizer, criterion, epoch)
             
             # Validate using embedding-based verification
-            val_loss, val_metrics = self.validate(criterion)
+            val_metrics = self.validate()
             val_auc = val_metrics['auc']
             val_eer = val_metrics['eer']
             
             # Update current epoch
             self.current_epoch = epoch
             
-            # Update learning rate based on validation loss
-            scheduler.step(val_loss)
+            # Update learning rate based on validation AUC (higher is better)
+            scheduler.step(val_auc)
             current_lr = optimizer.param_groups[0]['lr']
             
             # Update metrics
             self.metrics_tracker.update(
                 train_loss=train_loss,
                 train_acc=train_acc,
-                val_loss=val_loss,
                 val_auc=val_auc,
                 val_eer=val_eer,
                 lr=current_lr
@@ -237,7 +215,6 @@ class LocalTrainer:
                 log_metrics({
                     'train_loss': train_loss,
                     'train_acc': train_acc,
-                    'val_loss': val_loss,
                     'val_auc': val_auc,
                     'val_eer': val_eer,
                     'num_positive_pairs': val_metrics['num_positive_pairs'],
@@ -247,7 +224,7 @@ class LocalTrainer:
             
             print(f"Epoch {epoch}/{epochs} - "
                   f"Train Loss: {train_loss:.6f}, Train Acc: {train_acc:.6f}, "
-                  f"Val Loss: {val_loss:.6f}, Val AUC: {val_auc:.6f}, Val EER: {val_eer:.6f}")
+                  f"Val AUC: {val_auc:.6f}, Val EER: {val_eer:.6f}")
             
             # Save best model based on validation AUC (higher is better)
             improved = False
