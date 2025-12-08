@@ -45,14 +45,28 @@ FED_CLIENT_FRACTION = 1.0  # Fraction of clients to use per round
 FEDPROX_MU = 0.01  # Proximal term coefficient
 
 # Data augmentation
-AUGMENTATION_CONFIG = {
+# Data augmentation configurations
+AUGMENTATION_NONE = {}
+
+AUGMENTATION_WEAK = {
+    'horizontal_flip': 0.5,
+    'rotation': 10,
+    'color_jitter': {
+        'brightness': 0.1,
+        'contrast': 0.1,
+        'saturation': 0.1,
+        'hue': 0.05
+    }
+}
+
+AUGMENTATION_STRONG = {
     'horizontal_flip': 0.5,
     'rotation': 30,  # Increased from 15 for more variation
     'color_jitter': {
         'brightness': 0.4,  # Increased from 0.2
         'contrast': 0.4,    # Increased from 0.2
         'saturation': 0.3,  # Increased from 0.2
-        'hue': 0.15         # Increased from 0.1
+        'hue': 0.1         # Increased from 0.1
     },
     'random_affine': {
         'degrees': 0,
@@ -62,7 +76,7 @@ AUGMENTATION_CONFIG = {
     },
     'random_perspective': 0.2,  # Distortion scale
     'random_erasing': {
-        'p': 0.3,                   # 30% probability
+        'p': 0.2,                   # 30% probability
         'scale': (0.02, 0.15),      # Erase 2-15% of image
         'ratio': (0.3, 3.3)         # Aspect ratio range
     },
@@ -71,6 +85,9 @@ AUGMENTATION_CONFIG = {
         'sigma': (0.1, 2.0)
     }
 }
+
+# Default augmentation config (for backward compatibility)
+AUGMENTATION_CONFIG = AUGMENTATION_STRONG
 
 # Model architectures to train
 MODEL_ARCHITECTURES = ['custom_cnn', 'resnet18', 'mobilenetv2']

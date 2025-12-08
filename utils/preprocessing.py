@@ -53,12 +53,13 @@ class FaceAligner:
             return img.resize(config.IMG_SIZE)
 
 
-def get_train_transforms(use_augmentation=True):
+def get_train_transforms(use_augmentation=True, aug_config=None):
     """
     Get training data transformations.
     
     Args:
         use_augmentation: Whether to apply data augmentation
+        aug_config: Augmentation configuration dict (if None, uses config.AUGMENTATION_CONFIG)
         
     Returns:
         torchvision.transforms.Compose object
@@ -67,44 +68,55 @@ def get_train_transforms(use_augmentation=True):
         transforms.Resize(config.IMG_SIZE),
     ]
     
-    if use_augmentation:
-        aug_config = config.AUGMENTATION_CONFIG
+    if use_augmentation and aug_config:
+        # Basic augmentations (always present if aug_config provided)
         transform_list.extend([
             transforms.RandomHorizontalFlip(p=aug_config['horizontal_flip']),
             transforms.RandomRotation(degrees=aug_config['rotation']),
-            transforms.RandomAffine(
-                degrees=aug_config['random_affine']['degrees'],
-                translate=aug_config['random_affine']['translate'],
-                scale=aug_config['random_affine']['scale'],
-                shear=aug_config['random_affine']['shear']
-            ),
-            transforms.RandomPerspective(
-                distortion_scale=aug_config['random_perspective'],
-                p=0.5
-            ),
             transforms.ColorJitter(
                 brightness=aug_config['color_jitter']['brightness'],
                 contrast=aug_config['color_jitter']['contrast'],
                 saturation=aug_config['color_jitter']['saturation'],
                 hue=aug_config['color_jitter']['hue']
             ),
-            transforms.GaussianBlur(
-                kernel_size=aug_config['gaussian_blur']['kernel_size'],
-                sigma=aug_config['gaussian_blur']['sigma']
-            ),
         ])
+        
+        # Advanced augmentations (only in strong mode)
+        if 'random_affine' in aug_config:
+            transform_list.append(
+                transforms.RandomAffine(
+                    degrees=aug_config['random_affine']['degrees'],
+                    translate=aug_config['random_affine']['translate'],
+                    scale=aug_config['random_affine']['scale'],
+                    shear=aug_config['random_affine']['shear']
+                )
+            )
+        
+        if 'random_perspective' in aug_config:
+            transform_list.append(
+                transforms.RandomPerspective(
+                    distortion_scale=aug_config['random_perspective'],
+                    p=0.5
+                )
+            )
+        
+        if 'gaussian_blur' in aug_config:
+            transform_list.append(
+                transforms.GaussianBlur(
+                    kernel_size=aug_config['gaussian_blur']['kernel_size'],
+                    sigma=aug_config['gaussian_blur']['sigma']
+                )
+            )
     
     transform_list.extend([
         transforms.ToTensor(),
         transforms.Normalize(mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD)
     ])
     
-    # Add RandomErasing after normalization (works on tensors)
-    if use_augmentation:
+    # Add RandomErasing after normalization (works on tensors, only in strong mode)
+    if use_augmentation and aug_config and 'random_erasing' in aug_config:
         transform_list.append(
             transforms.RandomErasing(
-                p=aug_config['random_erasing']['p'],
-                scale=aug_config['random_erasing']['scale'],
                 ratio=aug_config['random_erasing']['ratio']
             )
         )

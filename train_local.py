@@ -360,8 +360,19 @@ def main():
                        help='Resume training from checkpoint (latest or best)')
     parser.add_argument('--no-mlflow', action='store_true',
                        help='Disable MLflow tracking')
+    parser.add_argument('--augmentation', type=str, default='strong',
+                       choices=['none', 'weak', 'strong'],
+                       help='Augmentation level: none (no aug), weak (flip+small rotation+mild color), strong (all transforms)')
     
     args = parser.parse_args()
+    
+    # Map augmentation level to config
+    aug_map = {
+        'none': config.AUGMENTATION_NONE,
+        'weak': config.AUGMENTATION_WEAK,
+        'strong': config.AUGMENTATION_STRONG
+    }
+    aug_config = aug_map[args.augmentation]
     
     # Setup MLflow
     use_mlflow = config.MLFLOW_ENABLE and not args.no_mlflow
@@ -370,9 +381,9 @@ def main():
         setup_mlflow(experiment_name, tracking_uri=config.MLFLOW_TRACKING_URI)
     
     # Load client data
-    print(f"\nLoading {args.client.upper()} dataset...")
+    print(f"\nLoading {args.client.upper()} dataset with '{args.augmentation}' augmentation...")
     train_loader, val_loader, test_loader, num_classes = get_client_data(
-        args.client, batch_size=args.batch_size
+        args.client, batch_size=args.batch_size, aug_config=aug_config
     )
     
     if train_loader is None:
@@ -384,7 +395,7 @@ def main():
     model = create_model(args.model, num_classes=num_classes)
     
     # Start MLflow run
-    run_name = f"{args.client}_{args.model}"
+    run_name = f"{args.client}_{args.model}_{args.augmentation}"
     if use_mlflow:
         with start_run(run_name=run_name):
             # Log parameters
@@ -394,6 +405,7 @@ def main():
                 'epochs': args.epochs,
                 'learning_rate': args.lr,
                 'batch_size': args.batch_size,
+                'augmentation': args.augmentation,
                 'num_classes': num_classes,
                 'train_size': len(train_loader.dataset),
                 'val_size': len(val_loader.dataset),

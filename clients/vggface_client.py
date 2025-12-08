@@ -98,7 +98,7 @@ class VGGFace2Dataset(Dataset):
         return len(self.person_to_idx)
 
 
-def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identities=500):
+def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identities=500, aug_config=None):
     """
     Load VGGFace2 dataset with official train/val splits.
     
@@ -107,6 +107,7 @@ def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identi
         batch_size: Batch size for DataLoader
         num_workers: Number of workers for DataLoader
         max_identities: Maximum number of identities to use
+        aug_config: Augmentation configuration dict (None, WEAK, or STRONG)
         
     Returns:
         train_loader, val_loader, test_loader, num_classes
@@ -117,10 +118,11 @@ def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identi
     print(f"Loading VGGFace2 dataset from {root_dir}...")
     
     # Create datasets using official splits
+    use_aug = aug_config is not None and len(aug_config) > 0
     train_dataset = VGGFace2Dataset(
         root_dir=root_dir,
         split='train',
-        transform=get_train_transforms(use_augmentation=True),
+        transform=get_train_transforms(use_augmentation=use_aug, aug_config=aug_config),
         max_identities=max_identities
     )
     
