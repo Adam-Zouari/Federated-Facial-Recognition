@@ -89,12 +89,24 @@ python train_local.py --client vggface2 --model mobilenetv2
 python train_local.py --client celeba --model resnet18 --epochs 30 --lr 0.0001 --batch-size 64
 ```
 
+**Data Augmentation Control:**
+```bash
+# No augmentation (only resize + normalize)
+python train_local.py --client vggface2 --model mobilenetv2 --augmentation none
+
+# Weak augmentation (flip + small rotation + mild color jitter)
+python train_local.py --client vggface2 --model mobilenetv2 --augmentation weak
+
+# Strong augmentation (all transforms: flip, rotation, affine, perspective, blur, erasing)
+python train_local.py --client vggface2 --model mobilenetv2 --augmentation strong  # default
+```
+
 **Resume Training:**
 ```bash
 # Resume from latest checkpoint (continues from last saved epoch)
 python train_local.py --client celeba --model resnet18 --resume latest
 
-# Resume from best checkpoint (continues from best validation accuracy)
+# Resume from best checkpoint (continues from best validation AUC)
 python train_local.py --client celeba --model resnet18 --resume best
 ```
 
@@ -130,21 +142,29 @@ python evaluate.py --mode all
 
 ### Data Processing
 - **Stratified Sampling**: Balanced class distribution across train/val/test splits
-- **Class-Weighted Loss**: Automatic compensation for any remaining class imbalance
-- **Image Preprocessing**: Resize to 128×128, normalization, augmentation (flip, rotation, color jitter)
+- **Class-Weighted Loss**: Automatic compensation for class imbalance with caching
+- **Configurable Augmentation**: Three levels (none/weak/strong) for controlled experiments
+  - **None**: Only resize + normalize (baseline)
+  - **Weak**: Horizontal flip + rotation (±10°) + mild ColorJitter
+  - **Strong**: All transforms including affine, perspective, GaussianBlur, RandomErasing
+- **Image Preprocessing**: Resize to 128×128, normalization
 
 ### Training & Optimization
 - **GPU Support**: Automatic CUDA detection and utilization
 - **Learning Rate Scheduling**: ReduceLROnPlateau for adaptive learning
-- **Early Stopping**: Patience-based stopping to prevent overfitting
+- **Early Stopping**: Patience-based stopping using AUC/EER metrics
 - **Complete Checkpointing**: Saves model, optimizer, scheduler, and epoch state
 - **Training Resumption**: Resume from latest or best checkpoint with `--resume` flag
+- **Verification Metrics**: AUC and EER (Equal Error Rate) for face verification evaluation
 
 ### Experiment Tracking
 - **MLflow Integration**: SQLite backend for efficient experiment tracking
-- **Comprehensive Logging**: Train/val loss and accuracy logged every epoch
-- **Visualization**: Training curves, confusion matrices, ROC curves, t-SNE/PCA embeddings
-- **Metrics**: Accuracy (6 decimal precision), Precision, Recall, F1-Score, ROC-AUC
+- **Comprehensive Logging**: Logs train loss/accuracy, validation AUC/EER, learning rate per epoch
+- **Visualization**: Training curves, ROC curves for verification
+- **Verification Metrics**: AUC (Area Under ROC), EER (Equal Error Rate), positive/negative pair counts
+- **Organized Outputs**: Separate directories per client and augmentation level
+  - Checkpoints: `checkpoints/local/{client}_{augmentation}/`
+  - Plots: `plots/local/{client}_{augmentation}/`
 
 ### Models & Datasets
 - **Dataset Support**: CelebA, VGGFace2
@@ -158,7 +178,7 @@ Edit `config.py` to customize:
 ### Image Processing
 - `IMG_SIZE`: Image dimensions (default: 128×128)
 - `NORMALIZE_MEAN/STD`: Normalization parameters
-- `AUGMENTATION_CONFIG`: Data augmentation settings
+- `AUGMENTATION_NONE/WEAK/STRONG`: Three augmentation levels for controlled experiments
 
 ### Training Hyperparameters
 - `LOCAL_EPOCHS`: Number of epochs (default: 20)
@@ -184,10 +204,21 @@ Edit `config.py` to customize:
 
 ## Checkpoints
 
-The system automatically saves two types of checkpoints:
+The system automatically saves checkpoints organized by client and augmentation level:
 
-1. **`best_model.pth`**: Saved when validation accuracy improves
-   - Contains: model weights, best metrics, training history
+**Directory Structure:**
+- `checkpoints/local/{client}_{augmentation}/best_model.pth`
+- `checkpoints/local/{client}_{augmentation}/latest_checkpoint.pth`
+
+Examples:
+- `checkpoints/local/vggface2_none/best_model.pth`
+- `checkpoints/local/vggface2_weak/best_model.pth`
+- `checkpoints/local/vggface2_strong/best_model.pth`
+
+**Checkpoint Types:**
+
+1. **`best_model.pth`**: Saved when validation AUC improves
+   - Contains: model weights, best AUC/EER, training history
    - Use for final evaluation
 
 2. **`latest_checkpoint.pth`**: Saved after every epoch
@@ -199,8 +230,13 @@ The system automatically saves two types of checkpoints:
 - Optimizer state dict
 - Scheduler state dict
 - Current epoch number
-- Best validation accuracy and loss
+- Best validation AUC and EER
 - Complete metrics history
+
+### Class Weights Cache
+Class weights are cached separately and shared across augmentation levels:
+- `checkpoints/class_weights/{client}_class_weights.pth`
+- Computed once per dataset, reused for all augmentation experiments
 
 ## MLflow Tracking
 
@@ -212,7 +248,24 @@ mlflow ui
 Then open http://localhost:5000 in your browser.
 
 ### Logged Information
-- **Parameters**: Model architecture, hyperparameters, dataset info
-- **Metrics**: Train/val loss and accuracy per epoch, test metrics
-- **Artifacts**: Training curves, confusion matrices, ROC curves, embeddings, metrics JSON
+- **Parameters**: Model architecture, hyperparameters, augmentation level, dataset info
+- **Metrics**: Train loss/accuracy, validation AUC/EER, learning rate per epoch, test verification metrics
+- **Artifacts**: Training curves, ROC curves, verification metrics JSON
 - **Models**: Registered models with version tracking
+
+## Outputs
+
+All training outputs are organized by client and augmentation level:
+
+### Plots Directory
+```
+plots/local/{client}_{augmentation}/
+├── {model}_training_curves.png      # Loss and AUC/EER over epochs
+├── {model}_verification_roc_curve.png  # ROC curve for face verification
+└── {model}_verification_metrics.json   # AUC, EER, thresholds, pair counts
+```
+
+Examples:
+- `plots/local/vggface2_none/mobilenetv2_training_curves.png`
+- `plots/local/vggface2_weak/mobilenetv2_verification_roc_curve.png`
+- `plots/local/vggface2_strong/mobilenetv2_verification_metrics.json`
