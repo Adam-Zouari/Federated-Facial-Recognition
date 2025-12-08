@@ -66,7 +66,7 @@ AUGMENTATION_STRONG = {
         'brightness': 0.4,  # Increased from 0.2
         'contrast': 0.4,    # Increased from 0.2
         'saturation': 0.3,  # Increased from 0.2
-        'hue': 0.1         # Increased from 0.1
+        'hue': 0.15         # Increased from 0.1
     },
     'random_affine': {
         'degrees': 0,
@@ -76,7 +76,7 @@ AUGMENTATION_STRONG = {
     },
     'random_perspective': 0.2,  # Distortion scale
     'random_erasing': {
-        'p': 0.2,                   # 30% probability
+        'p': 0.3,                   # 30% probability
         'scale': (0.02, 0.15),      # Erase 2-15% of image
         'ratio': (0.3, 3.3)         # Aspect ratio range
     },
