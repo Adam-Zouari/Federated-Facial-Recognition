@@ -26,7 +26,7 @@ class LocalTrainer:
     """Local trainer for a single client."""
     
     def __init__(self, client_name, model, train_loader, val_loader, test_loader,
-                 device=None, checkpoint_dir=None, use_mlflow=True):
+                 device=None, checkpoint_dir=None, use_mlflow=True, aug_level='strong'):
         """
         Args:
             client_name: Name of the client
@@ -37,8 +37,10 @@ class LocalTrainer:
             device: Device to use
             checkpoint_dir: Directory to save checkpoints
             use_mlflow: Whether to use MLflow tracking
+            aug_level: Augmentation level (none/weak/strong)
         """
-        self.client_name = client_name
+        self.client_name = f"{client_name}_{aug_level}"
+        self.client_name_base = client_name  # Base name without augmentation suffix
         self.device = device or config.DEVICE
         self.model = model.to(self.device)
         self.train_loader = train_loader
@@ -155,9 +157,10 @@ class LocalTrainer:
         
         # Compute class weights for balanced loss (even with stratification)
         # Use caching to avoid recomputing on every run
+        # Cache uses base client name (without augmentation suffix) since class distribution is identical
         cache_dir = Path("checkpoints") / "class_weights"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / f"{self.client_name}_class_weights.pth"
+        cache_file = cache_dir / f"{self.client_name_base}_class_weights.pth"
         
         if cache_file.exists():
             print(f"Loading cached class weights from {cache_file}")
@@ -420,7 +423,8 @@ def main():
                 train_loader=train_loader,
                 val_loader=val_loader,
                 test_loader=test_loader,
-                use_mlflow=use_mlflow
+                use_mlflow=use_mlflow,
+                aug_level=args.augmentation
             )
             
             # Resume from checkpoint if requested
