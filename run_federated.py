@@ -106,6 +106,10 @@ def main():
                        help='Learning rate')
     parser.add_argument('--client-fraction', type=float, default=config.FED_CLIENT_FRACTION,
                        help='Fraction of clients per round')
+    parser.add_argument('--early-stopping', type=int, default=config.FED_EARLY_STOPPING_PATIENCE,
+                       help='Early stopping patience (rounds without improvement, 0=disabled)')
+    parser.add_argument('--min-delta', type=float, default=config.FED_EARLY_STOPPING_MIN_DELTA,
+                       help='Minimum improvement to reset early stopping patience')
     parser.add_argument('--no-mlflow', action='store_true',
                        help='Disable MLflow tracking')
     
@@ -144,6 +148,8 @@ def main():
                 'num_clients': len(clients),
                 'num_classes': num_classes,
                 'batch_size': config.FED_BATCH_SIZE,
+                'early_stopping_patience': args.early_stopping if args.early_stopping > 0 else None,
+                'early_stopping_min_delta': args.min_delta,
                 'device': str(config.DEVICE)
             })
             
@@ -154,19 +160,27 @@ def main():
                 use_mlflow=use_mlflow
             )
             
+            # Prepare early stopping parameters
+            early_stopping_patience = args.early_stopping if args.early_stopping > 0 else None
+            
+            # Prepare checkpoint directory
+            checkpoint_dir = os.path.join(config.CHECKPOINT_DIR, 'federated', args.method)
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            
             # Run federated training
             history = server.federated_training(
                 clients=clients,
                 num_rounds=args.rounds,
                 epochs_per_round=args.epochs_per_round,
                 client_fraction=args.client_fraction,
-                test_loader=None
+                test_loader=None,
+                early_stopping_patience=early_stopping_patience,
+                early_stopping_min_delta=args.min_delta,
+                checkpoint_dir=checkpoint_dir
             )
             
-            # Save global model
-            checkpoint_dir = os.path.join(config.CHECKPOINT_DIR, 'federated', args.method)
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            model_path = os.path.join(checkpoint_dir, f'{args.model}_global_model.pth')
+            # Save final global model
+            model_path = os.path.join(checkpoint_dir, f'{args.model}_final_global_model.pth')
             server.save_global_model(model_path)
             
             # Plot convergence curves
