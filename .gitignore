@@ -11,3 +11,6 @@ checkpoints/
 mlflow.db
 
 plots/
+
+
+outputs/
