@@ -296,21 +296,85 @@ def plot_federated_convergence(rounds_history, save_path=None):
     losses = [h['loss'] for h in rounds_history]
     accuracies = [h['accuracy'] for h in rounds_history]
     
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    # Check if we have AUC and EER metrics (for verification-based evaluation)
+    has_verification_metrics = any('test_auc' in h for h in rounds_history)
     
-    # Loss convergence
-    axes[0].plot(rounds, losses, marker='o', linewidth=2, markersize=6)
-    axes[0].set_xlabel('Communication Round', fontsize=12)
-    axes[0].set_ylabel('Average Loss', fontsize=12)
-    axes[0].set_title('Federated Learning Loss Convergence', fontsize=14, fontweight='bold')
-    axes[0].grid(True, alpha=0.3)
-    
-    # Accuracy convergence
-    axes[1].plot(rounds, accuracies, marker='o', linewidth=2, markersize=6, color='green')
-    axes[1].set_xlabel('Communication Round', fontsize=12)
-    axes[1].set_ylabel('Average Accuracy', fontsize=12)
-    axes[1].set_title('Federated Learning Accuracy Convergence', fontsize=14, fontweight='bold')
-    axes[1].grid(True, alpha=0.3)
+    if has_verification_metrics:
+        # Extract verification metrics (only from rounds that have them)
+        eval_rounds = [h['round'] for h in rounds_history if 'test_auc' in h]
+        aucs = [h['test_auc'] for h in rounds_history if 'test_auc' in h]
+        eers = [h['test_eer'] for h in rounds_history if 'test_eer' in h]
+        
+        # Create 2x2 subplot
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        
+        # Training Loss
+        axes[0, 0].plot(rounds, losses, marker='o', linewidth=2, markersize=6, color='blue')
+        axes[0, 0].set_xlabel('Communication Round', fontsize=12)
+        axes[0, 0].set_ylabel('Average Loss', fontsize=12)
+        axes[0, 0].set_title('Training Loss Convergence', fontsize=14, fontweight='bold')
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # Training Accuracy
+        axes[0, 1].plot(rounds, accuracies, marker='o', linewidth=2, markersize=6, color='green')
+        axes[0, 1].set_xlabel('Communication Round', fontsize=12)
+        axes[0, 1].set_ylabel('Average Accuracy', fontsize=12)
+        axes[0, 1].set_title('Training Accuracy Convergence', fontsize=14, fontweight='bold')
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # Evaluation AUC (Primary Metric)
+        if aucs:
+            axes[1, 0].plot(eval_rounds, aucs, marker='s', linewidth=2.5, markersize=7, 
+                           color='purple', label='Test AUC')
+            axes[1, 0].set_xlabel('Communication Round', fontsize=12)
+            axes[1, 0].set_ylabel('AUC Score', fontsize=12)
+            axes[1, 0].set_title('Evaluation AUC Convergence', fontsize=14, fontweight='bold')
+            axes[1, 0].grid(True, alpha=0.3)
+            axes[1, 0].set_ylim([0, 1])
+            axes[1, 0].legend(fontsize=10)
+            
+            # Add horizontal line at best AUC
+            best_auc = max(aucs)
+            best_round = eval_rounds[aucs.index(best_auc)]
+            axes[1, 0].axhline(y=best_auc, color='purple', linestyle='--', alpha=0.5, 
+                              label=f'Best: {best_auc:.4f} @ Round {best_round}')
+            axes[1, 0].legend(fontsize=10)
+        
+        # Evaluation EER (Secondary Metric - Lower is Better)
+        if eers:
+            axes[1, 1].plot(eval_rounds, eers, marker='^', linewidth=2.5, markersize=7, 
+                           color='red', label='Test EER')
+            axes[1, 1].set_xlabel('Communication Round', fontsize=12)
+            axes[1, 1].set_ylabel('EER Score', fontsize=12)
+            axes[1, 1].set_title('Evaluation EER Convergence (Lower is Better)', 
+                                fontsize=14, fontweight='bold')
+            axes[1, 1].grid(True, alpha=0.3)
+            axes[1, 1].set_ylim([0, 1])
+            axes[1, 1].legend(fontsize=10)
+            
+            # Add horizontal line at best EER (minimum)
+            best_eer = min(eers)
+            best_round = eval_rounds[eers.index(best_eer)]
+            axes[1, 1].axhline(y=best_eer, color='red', linestyle='--', alpha=0.5,
+                              label=f'Best: {best_eer:.4f} @ Round {best_round}')
+            axes[1, 1].legend(fontsize=10)
+    else:
+        # Original 1x2 subplot for classification metrics
+        fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Loss convergence
+        axes[0].plot(rounds, losses, marker='o', linewidth=2, markersize=6)
+        axes[0].set_xlabel('Communication Round', fontsize=12)
+        axes[0].set_ylabel('Average Loss', fontsize=12)
+        axes[0].set_title('Federated Learning Loss Convergence', fontsize=14, fontweight='bold')
+        axes[0].grid(True, alpha=0.3)
+        
+        # Accuracy convergence
+        axes[1].plot(rounds, accuracies, marker='o', linewidth=2, markersize=6, color='green')
+        axes[1].set_xlabel('Communication Round', fontsize=12)
+        axes[1].set_ylabel('Average Accuracy', fontsize=12)
+        axes[1].set_title('Federated Learning Accuracy Convergence', fontsize=14, fontweight='bold')
+        axes[1].grid(True, alpha=0.3)
     
     plt.tight_layout()
     
@@ -319,8 +383,7 @@ def plot_federated_convergence(rounds_history, save_path=None):
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved federated convergence curves to {save_path}")
     
-    plt.show()
-    plt.close()
+    return fig
 
 
 def plot_client_comparison(client_metrics, save_path=None):

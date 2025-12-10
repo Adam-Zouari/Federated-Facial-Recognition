@@ -10,6 +10,7 @@ import config
 from .fedavg import FedAvgServer
 from .fedprox import FedProxServer
 from utils.mlflow_utils import log_metrics, log_params
+from utils.metrics import evaluate_verification
 
 
 class FederatedServer:
@@ -39,11 +40,22 @@ class FederatedServer:
             raise ValueError(f"Unknown method: {method}")
         
         self.round_history = []
+        
+        # Early stopping state
+        self.best_test_auc = 0.0
+        self.best_model_state = None
+        self.patience_counter = 0
+        
+        # Checkpoint paths
+        self.checkpoint_dir = None
+        self.best_checkpoint_path = None
+        self.latest_checkpoint_path = None
     
     def federated_training(self, clients, num_rounds, epochs_per_round, 
-                          client_fraction=1.0, test_loader=None):
+                          client_fraction=1.0, test_loader=None, early_stopping_patience=None,
+                          early_stopping_min_delta=0.001, checkpoint_dir=None):
         """
-        Execute federated training.
+        Execute federated training with optional early stopping.
         
         Args:
             clients: List of FederatedClient objects
@@ -51,12 +63,26 @@ class FederatedServer:
             epochs_per_round: Local epochs per round
             client_fraction: Fraction of clients to use per round
             test_loader: Global test data loader for evaluation
+            early_stopping_patience: Number of rounds without improvement before stopping (None=disabled)
+            early_stopping_min_delta: Minimum improvement to reset patience counter
+            checkpoint_dir: Directory to save checkpoints (None=no checkpointing)
             
         Returns:
             Training history
         """
+        # Setup checkpoint paths
+        if checkpoint_dir is not None:
+            self.checkpoint_dir = checkpoint_dir
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            self.best_checkpoint_path = os.path.join(checkpoint_dir, 'best_global_model.pth')
+            self.latest_checkpoint_path = os.path.join(checkpoint_dir, 'latest_checkpoint.pth')
+        
         print(f"\nStarting Federated Learning with {self.method.upper()}")
         print(f"Rounds: {num_rounds}, Clients: {len(clients)}, Epochs/Round: {epochs_per_round}")
+        if early_stopping_patience is not None:
+            print(f"Early Stopping: Enabled (patience={early_stopping_patience}, min_delta={early_stopping_min_delta})")
+        if checkpoint_dir is not None:
+            print(f"Checkpointing: Enabled (dir={checkpoint_dir})")
         print("="*60)
         
         for round_idx in range(num_rounds):
@@ -120,11 +146,70 @@ class FederatedServer:
             # Global evaluation
             if test_loader is not None:
                 test_stats = self.evaluate_global_model(test_loader)
-                round_stats['test_loss'] = test_stats['loss']
-                round_stats['test_accuracy'] = test_stats['accuracy']
+                round_stats['test_auc'] = test_stats['auc']
+                round_stats['test_eer'] = test_stats['eer']
                 
-                print(f"\n  Global Test: Loss={test_stats['loss']:.4f}, "
-                      f"Acc={test_stats['accuracy']:.4f}")
+                print(f"\n  Global Test: AUC={test_stats['auc']:.4f}, "
+                      f"EER={test_stats['eer']:.4f}")
+                
+                # Early stopping check (based on AUC as primary metric)
+                if early_stopping_patience is not None:
+                    current_auc = test_stats['auc']
+                    
+                    # Check if this is the best model (higher AUC is better)
+                    if current_auc > self.best_test_auc + early_stopping_min_delta:
+                        improvement = current_auc - self.best_test_auc
+                        self.best_test_auc = current_auc
+                        self.best_model_state = copy.deepcopy(self.global_model.state_dict())
+                        self.patience_counter = 0
+                        print(f"  ✓ New best AUC: {self.best_test_auc:.4f} (+{improvement:.4f}), "
+                              f"EER: {test_stats['eer']:.4f}")
+                        
+                        # Save best checkpoint
+                        if self.checkpoint_dir is not None:
+                            self._save_checkpoint(
+                                filepath=self.best_checkpoint_path,
+                                round_idx=round_idx + 1,
+                                is_best=True,
+                                test_auc=current_auc,
+                                test_eer=test_stats['eer']
+                            )
+                    else:
+                        self.patience_counter += 1
+                        print(f"  ⚠ No improvement for {self.patience_counter} rounds "
+                              f"(best AUC: {self.best_test_auc:.4f})")
+                        
+                        # Check if we should stop
+                        if self.patience_counter >= early_stopping_patience:
+                            print(f"\n{'='*60}")
+                            print(f"Early Stopping triggered after {round_idx + 1} rounds")
+                            print(f"Best test AUC: {self.best_test_auc:.4f}")
+                            print(f"{'='*60}")
+                            
+                            # Restore best model
+                            if self.best_model_state is not None:
+                                self.global_model.load_state_dict(self.best_model_state)
+                                self.server.set_global_params(self.best_model_state)
+                                print("Restored best model from earlier round")
+                            
+                            break  # Exit the training loop
+                elif test_loader is not None:
+                    # No early stopping, but still track best model for checkpointing
+                    current_auc = test_stats['auc']
+                    if current_auc > self.best_test_auc:
+                        self.best_test_auc = current_auc
+                        self.best_model_state = copy.deepcopy(self.global_model.state_dict())
+                        print(f"  ✓ New best AUC: {self.best_test_auc:.4f}, EER: {test_stats['eer']:.4f}")
+                        
+                        # Save best checkpoint
+                        if self.checkpoint_dir is not None:
+                            self._save_checkpoint(
+                                filepath=self.best_checkpoint_path,
+                                round_idx=round_idx + 1,
+                                is_best=True,
+                                test_auc=current_auc,
+                                test_eer=test_stats['eer']
+                            )
             
             # Log to MLflow
             if self.use_mlflow:
@@ -132,15 +217,25 @@ class FederatedServer:
                     'round_train_loss': avg_loss,
                     'round_train_acc': avg_acc,
                 }
-                if 'test_loss' in round_stats:
-                    mlflow_metrics['round_test_loss'] = round_stats['test_loss']
-                    mlflow_metrics['round_test_acc'] = round_stats['test_accuracy']
+                if 'test_auc' in round_stats:
+                    mlflow_metrics['round_test_auc'] = round_stats['test_auc']
+                    mlflow_metrics['round_test_eer'] = round_stats['test_eer']
                 
                 log_metrics(mlflow_metrics, step=round_idx + 1)
             
             self.round_history.append(round_stats)
             
             print(f"  Round Avg: Loss={avg_loss:.4f}, Acc={avg_acc:.4f}")
+            
+            # Save latest checkpoint after each round
+            if self.checkpoint_dir is not None:
+                self._save_checkpoint(
+                    filepath=self.latest_checkpoint_path,
+                    round_idx=round_idx + 1,
+                    is_best=False,
+                    test_auc=round_stats.get('test_auc', None),
+                    test_eer=round_stats.get('test_eer', None)
+                )
         
         print("\n" + "="*60)
         print("Federated Learning Complete!")
@@ -149,43 +244,31 @@ class FederatedServer:
     
     def evaluate_global_model(self, test_loader):
         """
-        Evaluate global model on test data.
+        Evaluate global model on test data using embedding-based verification.
+        Uses AUC as primary metric and EER as secondary metric.
         
         Args:
             test_loader: Test data loader
             
         Returns:
-            Dictionary with evaluation metrics
+            Dictionary with AUC, EER, and other verification metrics
         """
         self.global_model.eval()
-        criterion = torch.nn.CrossEntropyLoss()
         
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
-        
-        with torch.no_grad():
-            for images, labels in test_loader:
-                images = images.to(self.device)
-                labels = labels.to(self.device)
-                
-                outputs = self.global_model(images)
-                loss = criterion(outputs, labels)
-                
-                _, predicted = torch.max(outputs, 1)
-                correct = (predicted == labels).sum().item()
-                
-                batch_size = images.size(0)
-                total_loss += loss.item() * batch_size
-                total_correct += correct
-                total_samples += batch_size
-        
-        avg_loss = total_loss / total_samples if total_samples > 0 else 0
-        avg_acc = total_correct / total_samples if total_samples > 0 else 0
+        # Use embedding-based verification evaluation (same as local models)
+        metrics = evaluate_verification(
+            self.global_model, 
+            test_loader, 
+            device=self.device,
+            num_pairs=None  # Use all possible pairs
+        )
         
         return {
-            'loss': avg_loss,
-            'accuracy': avg_acc
+            'auc': metrics['auc'],
+            'eer': metrics['eer'],
+            'eer_threshold': metrics['eer_threshold'],
+            'num_positive_pairs': metrics['num_positive_pairs'],
+            'num_negative_pairs': metrics['num_negative_pairs']
         }
     
     def save_global_model(self, filepath):
@@ -206,3 +289,35 @@ class FederatedServer:
         if 'round_history' in checkpoint:
             self.round_history = checkpoint['round_history']
         print(f"Global model loaded from {filepath}")
+    
+    def _save_checkpoint(self, filepath, round_idx, is_best=False, test_auc=None, test_eer=None):
+        """
+        Save checkpoint during training.
+        
+        Args:
+            filepath: Path to save checkpoint
+            round_idx: Current round index
+            is_best: Whether this is the best model so far
+            test_auc: Test AUC (if available)
+            test_eer: Test EER (if available)
+        """
+        checkpoint = {
+            'round': round_idx,
+            'model_state_dict': self.global_model.state_dict(),
+            'method': self.method,
+            'round_history': self.round_history,
+            'is_best': is_best,
+            'best_test_auc': self.best_test_auc,
+        }
+        
+        if test_auc is not None:
+            checkpoint['test_auc'] = test_auc
+        if test_eer is not None:
+            checkpoint['test_eer'] = test_eer
+        
+        torch.save(checkpoint, filepath)
+        
+        if is_best:
+            print(f"  💾 Saved best checkpoint: {os.path.basename(filepath)}")
+        else:
+            print(f"  💾 Saved latest checkpoint: {os.path.basename(filepath)}")
