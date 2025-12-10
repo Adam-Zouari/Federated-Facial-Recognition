@@ -70,7 +70,9 @@ class FederatedClient:
             epoch_loss = AverageMeter()
             epoch_acc = AverageMeter()
             
-            pbar = tqdm(self.train_loader, desc=f"Client {self.client_id} - Epoch {epoch+1}/{epochs}")
+            pbar = tqdm(self.train_loader, 
+                       desc=f"Client {self.client_id} - Epoch {epoch+1}/{epochs}",
+                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
             
             for images, labels in pbar:
                 images = images.to(self.device)
