@@ -14,7 +14,7 @@ from federated import FederatedClient, FedProxClient, FederatedServer
 from utils.federated_partitioner import VGGFace2Partitioner
 from utils.metrics import evaluate_model, compute_metrics, print_metrics
 from utils.plotting import (plot_federated_convergence, plot_confusion_matrix,
-                           plot_client_comparison)
+                           plot_client_comparison, plot_client_evolution)
 from utils.mlflow_utils import (setup_mlflow, start_run, log_params, log_metrics,
                                 log_model, log_figure, log_dict, end_run)
 
@@ -190,6 +190,10 @@ def main():
     parser.add_argument('--no-mlflow', action='store_true',
                        help='Disable MLflow tracking')
     
+    # Resume training
+    parser.add_argument('--resume', type=str, default=None,
+                       help='Path to checkpoint file to resume training from')
+    
     args = parser.parse_args()
     
     # Get augmentation config
@@ -286,7 +290,8 @@ def main():
                 test_loader=global_test_loader,
                 early_stopping_patience=early_stopping_patience,
                 early_stopping_min_delta=args.min_delta,
-                checkpoint_dir=checkpoint_dir
+                checkpoint_dir=checkpoint_dir,
+                resume_from_checkpoint=args.resume
             )
             
             # Save final global model
@@ -309,6 +314,16 @@ def main():
             if use_mlflow and fig is not None:
                 log_figure(fig, f"{args.model}_convergence.png")
                 plt.close(fig)
+            
+            # Plot client evolution
+            fig_clients = plot_client_evolution(
+                history,
+                save_path=os.path.join(plots_dir,
+                                      f'{args.model}_{args.num_clients}clients_evolution.png')
+            )
+            if use_mlflow and fig_clients is not None:
+                log_figure(fig_clients, f"{args.model}_client_evolution.png")
+                plt.close(fig_clients)
             
             # Save history to file
             history_file = os.path.join(plots_dir, 

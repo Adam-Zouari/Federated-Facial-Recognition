@@ -53,7 +53,7 @@ class FederatedServer:
     
     def federated_training(self, clients, num_rounds, epochs_per_round, 
                           client_fraction=1.0, test_loader=None, early_stopping_patience=None,
-                          early_stopping_min_delta=0.001, checkpoint_dir=None):
+                          early_stopping_min_delta=0.001, checkpoint_dir=None, resume_from_checkpoint=None):
         """
         Execute federated training with optional early stopping.
         
@@ -66,6 +66,7 @@ class FederatedServer:
             early_stopping_patience: Number of rounds without improvement before stopping (None=disabled)
             early_stopping_min_delta: Minimum improvement to reset patience counter
             checkpoint_dir: Directory to save checkpoints (None=no checkpointing)
+            resume_from_checkpoint: Path to checkpoint file to resume from (None=start fresh)
             
         Returns:
             Training history
@@ -77,6 +78,13 @@ class FederatedServer:
             self.best_checkpoint_path = os.path.join(checkpoint_dir, 'best_global_model.pth')
             self.latest_checkpoint_path = os.path.join(checkpoint_dir, 'latest_checkpoint.pth')
         
+        # Resume from checkpoint if specified
+        start_round = 0
+        if resume_from_checkpoint is not None:
+            checkpoint_info = self.load_checkpoint(resume_from_checkpoint)
+            if checkpoint_info is not None:
+                start_round = checkpoint_info['start_round']
+        
         print(f"\nStarting Federated Learning with {self.method.upper()}")
         print(f"Rounds: {num_rounds}, Clients: {len(clients)}, Epochs/Round: {epochs_per_round}")
         if early_stopping_patience is not None:
@@ -85,7 +93,7 @@ class FederatedServer:
             print(f"Checkpointing: Enabled (dir={checkpoint_dir})")
         print("="*60)
         
-        for round_idx in range(num_rounds):
+        for round_idx in range(start_round, num_rounds):
             print(f"\n--- Round {round_idx + 1}/{num_rounds} ---")
             
             # Select clients for this round
@@ -221,6 +229,15 @@ class FederatedServer:
                     mlflow_metrics['round_test_auc'] = round_stats['test_auc']
                     mlflow_metrics['round_test_eer'] = round_stats['test_eer']
                 
+                # Log per-client metrics
+                for client_stat in round_stats['clients']:
+                    client_id = client_stat['client_id']
+                    # Extract client number (e.g., "vggface2_client_0" -> "0")
+                    client_num = client_id.split('_')[-1]
+                    mlflow_metrics[f'client_{client_num}_loss'] = client_stat['loss']
+                    mlflow_metrics[f'client_{client_num}_acc'] = client_stat['accuracy']
+                    mlflow_metrics[f'client_{client_num}_samples'] = client_stat['num_samples']
+                
                 log_metrics(mlflow_metrics, step=round_idx + 1)
             
             self.round_history.append(round_stats)
@@ -290,6 +307,51 @@ class FederatedServer:
             self.round_history = checkpoint['round_history']
         print(f"Global model loaded from {filepath}")
     
+    def load_checkpoint(self, filepath):
+        """
+        Load checkpoint for resuming training.
+        
+        Args:
+            filepath: Path to checkpoint file
+            
+        Returns:
+            Dictionary with checkpoint information
+        """
+        if not os.path.exists(filepath):
+            print(f"Checkpoint not found: {filepath}")
+            return None
+        
+        checkpoint = torch.load(filepath, map_location=self.device)
+        
+        # Restore model state
+        self.global_model.load_state_dict(checkpoint['model_state_dict'])
+        self.server.set_global_params(checkpoint['model_state_dict'])
+        
+        # Restore training state
+        if 'round_history' in checkpoint:
+            self.round_history = checkpoint['round_history']
+        
+        if 'best_test_auc' in checkpoint:
+            self.best_test_auc = checkpoint['best_test_auc']
+        
+        if 'best_model_state' in checkpoint:
+            self.best_model_state = checkpoint['best_model_state']
+        
+        start_round = checkpoint.get('round', 0)
+        
+        print(f"\n{'='*60}")
+        print(f"✓ Checkpoint loaded from {os.path.basename(filepath)}")
+        print(f"  Resuming from round: {start_round}")
+        print(f"  Best test AUC so far: {self.best_test_auc:.4f}")
+        print(f"  Training history: {len(self.round_history)} rounds completed")
+        print(f"{'='*60}\n")
+        
+        return {
+            'start_round': start_round,
+            'best_test_auc': self.best_test_auc,
+            'round_history': self.round_history
+        }
+    
     def _save_checkpoint(self, filepath, round_idx, is_best=False, test_auc=None, test_eer=None):
         """
         Save checkpoint during training.
@@ -308,6 +370,8 @@ class FederatedServer:
             'round_history': self.round_history,
             'is_best': is_best,
             'best_test_auc': self.best_test_auc,
+            'best_model_state': self.best_model_state,
+            'patience_counter': self.patience_counter,
         }
         
         if test_auc is not None:

@@ -427,3 +427,89 @@ def plot_client_comparison(client_metrics, save_path=None):
     
     plt.show()
     plt.close()
+
+
+def plot_client_evolution(history, save_path=None):
+    """
+    Plot evolution of all clients' performance over rounds.
+    Shows loss and accuracy for each client on separate subplots.
+    
+    Args:
+        history: Training history with per-client metrics
+        save_path: Path to save the plot
+        
+    Returns:
+        matplotlib figure object
+    """
+    if not history:
+        return None
+    
+    # Extract client metrics from history
+    num_rounds = len(history)
+    client_data = {}
+    
+    for round_idx, round_info in enumerate(history):
+        if 'clients' not in round_info:
+            continue
+            
+        for client_stat in round_info['clients']:
+            client_id = client_stat['client_id']
+            if client_id not in client_data:
+                client_data[client_id] = {
+                    'rounds': [],
+                    'loss': [],
+                    'accuracy': []
+                }
+            
+            client_data[client_id]['rounds'].append(round_idx + 1)
+            client_data[client_id]['loss'].append(client_stat['loss'])
+            client_data[client_id]['accuracy'].append(client_stat['accuracy'])
+    
+    if not client_data:
+        print("No client data found in history")
+        return None
+    
+    # Create color palette for clients
+    num_clients = len(client_data)
+    colors = plt.cm.tab10(np.linspace(0, 1, min(num_clients, 10)))
+    if num_clients > 10:
+        colors = plt.cm.tab20(np.linspace(0, 1, num_clients))
+    
+    # Create figure with 2 subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Plot loss for all clients
+    for idx, (client_id, data) in enumerate(sorted(client_data.items())):
+        # Extract client number for cleaner label
+        client_num = client_id.split('_')[-1]
+        ax1.plot(data['rounds'], data['loss'], 
+                marker='o', markersize=3, linewidth=1.5,
+                color=colors[idx], label=f'Client {client_num}', alpha=0.8)
+    
+    ax1.set_xlabel('Communication Round', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Training Loss', fontsize=12, fontweight='bold')
+    ax1.set_title('Client Training Loss Evolution', fontsize=14, fontweight='bold')
+    ax1.legend(loc='upper right', fontsize=8, ncol=2)
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot accuracy for all clients
+    for idx, (client_id, data) in enumerate(sorted(client_data.items())):
+        client_num = client_id.split('_')[-1]
+        ax2.plot(data['rounds'], data['accuracy'], 
+                marker='o', markersize=3, linewidth=1.5,
+                color=colors[idx], label=f'Client {client_num}', alpha=0.8)
+    
+    ax2.set_xlabel('Communication Round', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Training Accuracy', fontsize=12, fontweight='bold')
+    ax2.set_title('Client Training Accuracy Evolution', fontsize=14, fontweight='bold')
+    ax2.legend(loc='lower right', fontsize=8, ncol=2)
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved client evolution plot to {save_path}")
+    
+    return fig
