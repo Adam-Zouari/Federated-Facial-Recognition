@@ -41,6 +41,15 @@ FED_BATCH_SIZE = 32
 FED_LEARNING_RATE = 0.001
 FED_CLIENT_FRACTION = 1.0  # Fraction of clients to use per round
 
+# Federated early stopping
+FED_EARLY_STOPPING_PATIENCE = 15  # Number of rounds without improvement (None=disabled)
+FED_EARLY_STOPPING_MIN_DELTA = 0.001  # Minimum improvement to reset patience
+
+# VGGFace2 Federated Learning Configuration
+VGGFACE2_FED_NUM_CLIENTS = 10  # Recommended: 5, 10, or 20
+VGGFACE2_FED_PARTITION_STRATEGY = 'iid'  # 'iid' or 'non-iid'
+VGGFACE2_FED_ALPHA = 0.5  # Dirichlet concentration for non-iid (0.1=very skewed, 10=balanced)
+
 # FedProx hyperparameters
 FEDPROX_MU = 0.01  # Proximal term coefficient
 
