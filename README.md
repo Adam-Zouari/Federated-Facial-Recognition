@@ -121,6 +121,8 @@ python centralized/train_global.py --model resnet18
 ```
 
 ### 4. Run Federated Learning
+
+**Multi-Dataset Federated Learning (CelebA + VGGFace2):**
 ```bash
 # FedAvg
 python run_federated.py --method fedavg --rounds 50
@@ -128,6 +130,54 @@ python run_federated.py --method fedavg --rounds 50
 # FedProx
 python run_federated.py --method fedprox --rounds 50
 ```
+
+**VGGFace2-Only Federated Learning (Multiple Clients):**
+
+This is a dedicated federated learning setup for VGGFace2 with multiple clients and flexible data partitioning.
+
+**Quick Start (Interactive):**
+```bash
+python run_vggface2_examples.py
+```
+
+**Quick Test (5 clients, ~1-2 hours):**
+```bash
+python run_vggface2_federated.py --num-clients 5 --partition iid --model mobilenetv2 --rounds 30
+```
+
+**Recommended Configuration (10 clients, ~2-3 hours):**
+```bash
+python run_vggface2_federated.py --num-clients 10 --partition iid --model resnet18 --rounds 50
+```
+
+**Realistic Non-IID Scenario (10 clients, ~3-4 hours):**
+```bash
+python run_vggface2_federated.py --num-clients 10 --partition non-iid --alpha 0.5 --model resnet18 --rounds 50
+```
+
+**Advanced Research Setup (20 clients, ~6-8 hours):**
+```bash
+python run_vggface2_federated.py \
+    --num-clients 20 \
+    --partition non-iid \
+    --alpha 0.3 \
+    --method fedprox \
+    --model resnet18 \
+    --rounds 100 \
+    --client-fraction 0.5 \
+    --augmentation strong
+```
+
+**VGGFace2 Federated Parameters:**
+- `--num-clients`: Number of federated clients (5, 10, or 20)
+- `--partition`: Data partition strategy (iid or non-iid)
+- `--alpha`: Dirichlet concentration for non-iid (0.1=highly skewed, 0.5=moderate, 10=balanced)
+- `--method`: Federated algorithm (fedavg or fedprox)
+- `--client-fraction`: Fraction of clients to sample per round (0.0-1.0)
+
+**📚 For detailed VGGFace2 federated learning documentation, see:**
+- `VGGFACE2_FEDERATED_GUIDE.md` - Comprehensive usage guide
+- `VGGFACE2_FEDERATED_SUMMARY.md` - Implementation summary and quick reference
 
 ### 5. Evaluate Models
 ```bash
@@ -191,6 +241,11 @@ Edit `config.py` to customize:
 - `FED_EPOCHS_PER_ROUND`: Local epochs per round
 - `FED_CLIENT_FRACTION`: Fraction of clients per round
 - `FEDPROX_MU`: Proximal term coefficient
+
+### VGGFace2 Federated Learning
+- `VGGFACE2_FED_NUM_CLIENTS`: Number of clients (default: 10)
+- `VGGFACE2_FED_PARTITION_STRATEGY`: Partition strategy (iid or non-iid)
+- `VGGFACE2_FED_ALPHA`: Dirichlet concentration for non-iid (default: 0.5)
 
 ### MLflow Tracking
 - `MLFLOW_TRACKING_URI`: Database URI (default: `sqlite:///mlflow.db`)
