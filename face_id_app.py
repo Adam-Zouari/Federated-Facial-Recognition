@@ -108,7 +108,7 @@ class FaceIDApp:
         self.camera = None
         
         # Similarity threshold for verification
-        self.similarity_threshold = 0.6  # Adjust based on your model's performance
+        self.similarity_threshold = 0.7  # Adjust based on your model's performance
         
         # GUI
         self.root = tk.Tk()
@@ -595,30 +595,111 @@ class FaceIDApp:
         messagebox.showinfo("Face Database", info)
     
     def delete_face(self):
-        """Delete a face from the database."""
+        """Delete a face from the database with selection dialog."""
         if len(self.face_database) == 0:
             messagebox.showinfo("Database", "No faces registered yet.")
             return
         
-        # Ask which face to delete
+        # Create selection window
+        delete_window = tk.Toplevel(self.root)
+        delete_window.title("Delete Face from Database")
+        delete_window.geometry("350x400")
+        delete_window.configure(bg='#2c3e50')
+        
+        # Title
+        title = tk.Label(
+            delete_window,
+            text="Select Face to Delete",
+            font=('Arial', 13, 'bold'),
+            bg='#2c3e50',
+            fg='white'
+        )
+        title.pack(pady=10)
+        
+        # Frame for listbox and scrollbar
+        list_frame = tk.Frame(delete_window, bg='#2c3e50')
+        list_frame.pack(pady=5, padx=15, fill=tk.BOTH, expand=True)
+        
+        # Scrollbar
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Listbox
+        listbox = tk.Listbox(
+            list_frame,
+            font=('Arial', 11),
+            bg='#ecf0f1',
+            selectmode=tk.SINGLE,
+            height=10,
+            yscrollcommand=scrollbar.set
+        )
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate listbox
         names = list(self.face_database.keys())
-        names_str = "\n".join([f"{i+1}. {name}" for i, name in enumerate(names)])
+        for name in names:
+            data = self.face_database[name]
+            display_text = f"{name}  ({len(data['embeddings'])} poses, {data['date_added']})"
+            listbox.insert(tk.END, display_text)
         
-        choice = simpledialog.askstring("Delete Face", 
-                                       f"Enter name to delete:\n\n{names_str}")
+        # Button frame
+        button_frame = tk.Frame(delete_window, bg='#2c3e50')
+        button_frame.pack(pady=10)
         
-        if not choice:
-            return
-        
-        if choice in self.face_database:
+        def on_delete():
+            """Handle delete button click."""
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a face to delete.")
+                return
+            
+            selected_idx = selection[0]
+            selected_name = names[selected_idx]
+            
+            # Confirm deletion
             if messagebox.askyesno("Confirm Delete", 
-                                  f"Are you sure you want to delete {choice}?"):
-                del self.face_database[choice]
+                                  f"Are you sure you want to delete '{selected_name}'?"):
+                del self.face_database[selected_name]
                 self.save_database()
                 self.status_label.config(text=f"Database: {len(self.face_database)} registered faces")
-                messagebox.showinfo("Deleted", f"{choice} has been removed from the database.")
-        else:
-            messagebox.showwarning("Not Found", f"{choice} not found in database.")
+                messagebox.showinfo("Deleted", f"'{selected_name}' has been removed from the database.")
+                delete_window.destroy()
+        
+        def on_cancel():
+            """Handle cancel button click."""
+            delete_window.destroy()
+        
+        # Delete button
+        delete_btn = tk.Button(
+            button_frame,
+            text="🗑️ Delete",
+            font=('Arial', 12, 'bold'),
+            bg='#e74c3c',
+            fg='white',
+            width=15,
+            command=on_delete,
+            cursor='hand2'
+        )
+        delete_btn.grid(row=0, column=0, padx=10)
+        
+        # Cancel button
+        cancel_btn = tk.Button(
+            button_frame,
+            text="Cancel",
+            font=('Arial', 12),
+            bg='#95a5a6',
+            fg='white',
+            width=15,
+            command=on_cancel,
+            cursor='hand2'
+        )
+        cancel_btn.grid(row=0, column=1, padx=10)
+        
+        # Make window modal
+        delete_window.transient(self.root)
+        delete_window.grab_set()
+        self.root.wait_window(delete_window)
     
     def run(self):
         """Run the application."""
