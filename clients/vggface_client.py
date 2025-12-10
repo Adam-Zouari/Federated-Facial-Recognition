@@ -15,13 +15,15 @@ from utils.preprocessing import get_train_transforms, get_test_transforms
 class VGGFace2Dataset(Dataset):
     """VGGFace2 dataset wrapper with official train/val structure."""
     
-    def __init__(self, root_dir, split='train', transform=None, max_identities=500):
+    def __init__(self, root_dir, split='train', transform=None, max_identities=500, 
+                 allowed_identities=None):
         """
         Args:
             root_dir: Root directory of VGGFace2 dataset (should contain train/ and val/ folders)
             split: 'train' or 'val' (VGGFace2 has official train/val splits)
             transform: Image transformations
-            max_identities: Maximum number of identities to use
+            max_identities: Maximum number of identities to use (ignored if allowed_identities is set)
+            allowed_identities: List of specific identity names to use (for federated learning)
         """
         self.root_dir = root_dir
         self.split = split
@@ -45,8 +47,14 @@ class VGGFace2Dataset(Dataset):
         self.person_to_idx = {}
         
         # Get all person directories
-        person_dirs = sorted([d for d in os.listdir(self.data_dir) 
-                             if os.path.isdir(os.path.join(self.data_dir, d))])
+        all_person_dirs = sorted([d for d in os.listdir(self.data_dir) 
+                                 if os.path.isdir(os.path.join(self.data_dir, d))])
+        
+        # Filter by allowed_identities if provided (for federated learning)
+        if allowed_identities is not None:
+            person_dirs = [p for p in all_person_dirs if p in allowed_identities]
+        else:
+            person_dirs = all_person_dirs
         
         # Collect images per person
         person_images = []
@@ -57,10 +65,11 @@ class VGGFace2Dataset(Dataset):
             if len(images) > 0:
                 person_images.append((person, images))
         
-        # Sort by number of images and take top N identities
-        person_images.sort(key=lambda x: len(x[1]), reverse=True)
-        if max_identities is not None:
-            person_images = person_images[:max_identities]
+        # Sort by number of images and take top N identities (only if allowed_identities not set)
+        if allowed_identities is None:
+            person_images.sort(key=lambda x: len(x[1]), reverse=True)
+            if max_identities is not None:
+                person_images = person_images[:max_identities]
         
         # Create label mapping and collect image paths with stratification
         for idx, (person, images) in enumerate(person_images):
@@ -71,8 +80,6 @@ class VGGFace2Dataset(Dataset):
                 img_path = os.path.join(person_dir, img_name)
                 self.data.append(img_path)
                 self.labels.append(idx)
-        
-        print(f"VGGFace2 {split}: Loaded {len(self.data)} images from {len(self.person_to_idx)} identities")
     
     def __len__(self):
         return len(self.data)
@@ -98,7 +105,8 @@ class VGGFace2Dataset(Dataset):
         return len(self.person_to_idx)
 
 
-def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identities=500, aug_config=None):
+def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identities=500, 
+                       aug_config=None, allowed_identities=None):
     """
     Load VGGFace2 dataset with official train/val splits.
     
@@ -106,8 +114,9 @@ def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identi
         root_dir: Root directory of VGGFace2 dataset
         batch_size: Batch size for DataLoader
         num_workers: Number of workers for DataLoader
-        max_identities: Maximum number of identities to use
+        max_identities: Maximum number of identities to use (ignored if allowed_identities is set)
         aug_config: Augmentation configuration dict (None, WEAK, or STRONG)
+        allowed_identities: List of specific identity names for federated learning
         
     Returns:
         train_loader, val_loader, test_loader, num_classes
@@ -115,22 +124,22 @@ def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identi
     root_dir = root_dir or config.DATA_PATHS['vggface2']
     batch_size = batch_size or config.LOCAL_BATCH_SIZE
     
-    print(f"Loading VGGFace2 dataset from {root_dir}...")
-    
     # Create datasets using official splits
     use_aug = aug_config is not None and len(aug_config) > 0
     train_dataset = VGGFace2Dataset(
         root_dir=root_dir,
         split='train',
         transform=get_train_transforms(use_augmentation=use_aug, aug_config=aug_config),
-        max_identities=max_identities
+        max_identities=max_identities,
+        allowed_identities=allowed_identities
     )
     
     val_dataset = VGGFace2Dataset(
         root_dir=root_dir,
         split='val',
         transform=get_test_transforms(),
-        max_identities=max_identities
+        max_identities=max_identities,
+        allowed_identities=allowed_identities
     )
     
     # Use val as test (VGGFace2 only has train/val)
@@ -138,12 +147,11 @@ def load_vggface2_data(root_dir=None, batch_size=None, num_workers=4, max_identi
         root_dir=root_dir,
         split='test',  # Will use val folder
         transform=get_test_transforms(),
-        max_identities=max_identities
+        max_identities=max_identities,
+        allowed_identities=allowed_identities
     )
     
     num_classes = train_dataset.get_num_classes()
-    print(f"VGGFace2: {len(train_dataset)} train, {len(val_dataset)} val, {len(test_dataset)} test samples")
-    print(f"Number of identities: {num_classes}")
     
     if len(train_dataset) == 0:
         print("Warning: VGGFace2 dataset is empty!")
