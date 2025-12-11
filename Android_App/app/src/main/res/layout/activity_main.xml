@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:padding="16dp"
+    tools:context=".MainActivity">
+
+    <!-- Title -->
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔐 Face ID"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="@color/white"
+        android:layout_marginTop="40dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Database count -->
+    <TextView
+        android:id="@+id/tv_database_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Database: 0 registered faces"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/tv_title"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Button container -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Add Face Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_add_face"
+            android:layout_width="match_parent"
+            android:layout_height="80dp"
+            android:text="➕ Add New Face"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/button_add"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Verify Face Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_verify_face"
+            android:layout_width="match_parent"
+            android:layout_height="80dp"
+            android:text="🔍 Verify Face"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/button_verify"
+            android:layout_marginBottom="16dp" />
+
+        <!-- View Database Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_view_database"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="📋 View Database"
+            android:textSize="16sp"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/button_neutral"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Delete Face Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_delete_face"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="🗑️ Delete Face"
+            android:textSize="16sp"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/button_delete" />
+
+    </LinearLayout>
+
+    <!-- Instructions -->
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Add your face with different poses for better recognition\nVerify your face to check identity"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:gravity="center"
+        android:layout_marginBottom="24dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

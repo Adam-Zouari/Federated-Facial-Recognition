@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Face ID</string>
+    <string name="add_face">Add New Face</string>
+    <string name="verify_face">Verify Face</string>
+    <string name="view_database">View Database</string>
+    <string name="delete_face">Delete Face</string>
+    <string name="capture_pose">Capture Pose</string>
+    <string name="verify">Verify</string>
+</resources>

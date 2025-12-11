@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <!-- Camera Preview -->
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/instruction_container"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+        
+        <androidx.camera.view.PreviewView
+            android:id="@+id/preview_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+        
+        <!-- Face detection overlay -->
+        <com.faceid.ui.FaceOverlayView
+            android:id="@+id/face_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+
+    <!-- Instruction Container -->
+    <LinearLayout
+        android:id="@+id/instruction_container"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/background"
+        android:padding="16dp"
+        app:layout_constraintBottom_toTopOf="@id/btn_capture"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Pose Counter -->
+        <TextView
+            android:id="@+id/tv_pose_counter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pose 1/5"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Pose Instruction -->
+        <TextView
+            android:id="@+id/tv_pose_instruction"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Look straight at the camera"
+            android:textSize="18sp"
+            android:textColor="@color/button_add"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Status Text -->
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:layout_gravity="center_horizontal" />
+    </LinearLayout>
+
+    <!-- Capture Button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_capture"
+        android:layout_width="0dp"
+        android:layout_height="60dp"
+        android:text="📸 Capture Pose"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:cornerRadius="12dp"
+        app:backgroundTint="@color/button_verify"
+        android:layout_margin="16dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
