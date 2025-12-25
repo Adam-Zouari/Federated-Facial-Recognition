@@ -2,6 +2,29 @@
 
 This project implements a complete federated learning pipeline for facial recognition using two datasets: CelebA and VGGFace2. Features include stratified data sampling, class-weighted loss, checkpoint resumption, and MLflow tracking with SQLite backend.
 
+---
+
+## 📱 Android Face ID App
+
+An Android app is included for on-device face enrollment and verification using your trained models.
+
+- **Features:**
+  - Face enrollment (5 poses)
+  - Real-time face verification
+  - Local face embedding database
+  - Google ML Kit for face detection
+  - PyTorch Mobile for model inference
+
+**Setup:**
+1. Convert your PyTorch model to TorchScript:
+   ```bash
+   python convert_model_to_mobile.py --model checkpoints/local/vggface2_weak/best_model.pth --output Android_App/app/src/main/assets/model.pt
+   ```
+2. Open `Android_App` in Android Studio and build/run on a device or emulator.
+3. See [Android_App/README.md](Android_App/README.md) for full instructions and troubleshooting.
+
+---
+
 ## Project Structure
 
 ```
